@@ -95,11 +95,31 @@ platform_has=$("$nm" --defined-only "$sdk/target/lib/libps5platform.a" 2> /dev/n
     awk '$2 == "T" && $3 ~ /^ps5_/ { print substr($3, 5) }' | sort -u)
 port_has=$("$nm" --defined-only "${objects[@]}" 2> /dev/null |
     awk '$2 == "T" && $3 ~ /^uzps5_/ { print substr($3, 7) }' | sort -u)
+# Not every one can be bound this way. A platform function that calls the
+# library function it stands in front of (ps5_sysconf calls sysconf for the
+# names it does not answer itself; ps5_pthread_exit ends in pthread_exit) would
+# be bound to itself and call itself until the stack ran out: the first console
+# run died exactly so, in ps5_sysconf. Those names keep the console's own
+# function, which works, with the quirk the platform's version was written
+# to smooth over (ps5platform/libc.h).
+platform_listing=$("$nm" -A "$sdk/target/lib/libps5platform.a" 2> /dev/null)
+calls_itself() {  # does the object defining ps5_$1 also call $1?
+    local member
+    member=$(awk -v s="ps5_$1" '$NF == s && $(NF-1) == "T" { split($1, a, ":"); print a[2] }' <<< "$platform_listing" | head -1)
+    [[ -n $member ]] && awk -v m="$member" -v s="$1" '$NF == s && $(NF-1) == "U" { split($1, a, ":"); if (a[2] == m) found = 1 }
+        END { exit !found }' <<< "$platform_listing"
+}
 bound=()
+unbound=()
 for name in $(comm -12 <(echo "$wanted") <(echo "$platform_has") | comm -23 - <(echo "$already")); do
+    if calls_itself "$name"; then
+        unbound+=("$name")
+        continue
+    fi
     radv_link_flags+=("--defsym=$name=ps5_$name")
     bound+=("$name")
 done
+[[ ${#unbound[@]} -eq 0 ]] || echo "==> left to the console's own (the platform's version calls it): ${unbound[*]}"
 for name in $(comm -12 <(echo "$wanted") <(echo "$port_has") | comm -23 - <(echo "$already")); do
     radv_link_flags+=("--defsym=$name=uzps5_$name")
     bound+=("$name")
