@@ -4371,6 +4371,13 @@ void SignalHandler(int signal)
 
 int GameMain()
 {
+#if defined(__PROSPERO__)
+	// PS5: there is no window system, so no widget backend to create. The
+	// windows the engine opens with one before the game starts (the game
+	// picker, the fatal error box) have replacements in the console backend
+	// (common/platform/posix/ps5); the network lobby has none, and network
+	// play is not offered there.
+#else
 	// On Windows, prefer the native win32 backend.
 	// On other platforms, use SDL until the other backends are more mature.
 	auto zwidget = DisplayBackend::TryCreateWin32();
@@ -4382,6 +4389,7 @@ int GameMain()
 		return -1;
 	}
 	DisplayBackend::Set(std::move(zwidget));
+#endif
 
 	int ret = 0;
 	GameTicRate = TICRATE;

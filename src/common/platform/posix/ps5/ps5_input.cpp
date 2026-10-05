@@ -262,8 +262,8 @@ public:
 			event_t event = { 0,0,0,0,0,0,0 };
 			event.type = (pad.held & entry.button) ? EV_KeyDown : EV_KeyUp;
 			event.data1 = entry.key;
-			if (event.type == EV_KeyDown && !(use_joystick && Enabled))
-				continue;
+			// Always delivered: the pad is the only input the console has,
+			// and a setting that silenced it could not be switched back.
 			D_PostEvent(&event);
 		}
 		Held = pad.held;
@@ -385,8 +385,7 @@ static void PollPads()
 		if (!pad_player(player, &pad))
 			continue;
 		stick->ProcessButtons(pad);
-		if (use_joystick && stick->Enabled)
-			stick->ProcessAxes(pad);
+		stick->ProcessAxes(pad);
 	}
 }
 
@@ -435,11 +434,11 @@ void I_GetAxes(float axes[NUM_AXIS_CODES])
 	for (int i = 0; i < NUM_AXIS_CODES; ++i)
 		axes[i] = 0.0f;
 
-	if (!use_joystick)
-		return;
+	// Not gated by use_joystick or the per-device switch, for the same
+	// reason the buttons are not: there is no other way to move.
 	for (int player = 0; player < PAD_PLAYERS; player++)
 	{
-		if (Joysticks[player] != nullptr && Joysticks[player]->Enabled)
+		if (Joysticks[player] != nullptr)
 			Joysticks[player]->AddAxes(axes);
 	}
 }
