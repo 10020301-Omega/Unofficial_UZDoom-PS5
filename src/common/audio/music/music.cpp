@@ -84,6 +84,14 @@ EXTERN_CVAR(Float, opn_gain)
 
 CVAR(Bool, mus_calcgain, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG) // changing this will only take effect for the next song.
 CVAR(Bool, mus_usereplaygain, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG) // changing this will only take effect for the next song.
+// A plain amplifier for music, applied to the samples after the player and
+// before the mixer, so it works the same for every music format and device.
+// The other volume controls only ever turn music down from full scale.
+CUSTOM_CVAR(Float, snd_musicboost, 3.0f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+{
+	if (self < 1.f) self = 1.f;
+	else if (self > 8.f) self = 8.f;
+}
 CVAR(Int, mod_preferred_player, 0, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)// toggle between libXMP and Dumb. Unlike other sound CVARs this is not directly mapped to ZMusic's config.
 
 // CODE --------------------------------------------------------------------
@@ -208,15 +216,16 @@ static TArray<int16_t> convert;
 static bool FillStream(SoundStream* stream, void* buff, int len, void* userdata)
 {
 	bool written;
+	const float gain = mus_playing.musicVolume * snd_musicboost;
+	float* fbuf = (float*)buff;
 	if (mus_playing.isfloat)
 	{
 		written = ZMusic_FillStream(mus_playing.handle, buff, len);
-		if (mus_playing.musicVolume != 1.f)
+		if (gain != 1.f)
 		{
-			float* fbuf = (float*)buff;
 			for (int i = 0; i < len / 4; i++)
 			{
-				fbuf[i] *= mus_playing.musicVolume;
+				fbuf[i] *= gain;
 			}
 		}
 	}
@@ -225,10 +234,23 @@ static bool FillStream(SoundStream* stream, void* buff, int len, void* userdata)
 		// To apply replay gain we need floating point streaming data, so 16 bit input needs to be converted here.
 		convert.Resize(len / 2);
 		written = ZMusic_FillStream(mus_playing.handle, convert.Data(), len/2);
-		float* fbuf = (float*)buff;
 		for (int i = 0; i < len / 4; i++)
 		{
-			fbuf[i] = convert[i] * mus_playing.musicVolume * (1.f/32768.f);
+			fbuf[i] = convert[i] * gain * (1.f/32768.f);
+		}
+	}
+	if (snd_musicboost > 1.f)
+	{
+		// Round off what the boost pushed past full scale instead of letting it clip hard.
+		const float knee = 0.75f, room = 1.f - knee;
+		for (int i = 0; i < len / 4; i++)
+		{
+			float a = fabsf(fbuf[i]);
+			if (a > knee)
+			{
+				a = knee + room * tanhf((a - knee) / room);
+				fbuf[i] = fbuf[i] < 0 ? -a : a;
+			}
 		}
 	}
 

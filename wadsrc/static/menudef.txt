@@ -2726,6 +2726,7 @@ OptionMenu SoundOptions protected
 	StaticText " "
 	Slider "$SNDMNU_SFXVOLUME",         "snd_sfxvolume",       0, 1, 0.01, 0, "", 0, Gray, 100, "$VALFORMAT_PERCENT"
 	Slider "$SNDMNU_MUSICVOLUME",       "snd_musicvolume",     0, 1, 0.01, 0, "", 0, Gray, 100, "$VALFORMAT_PERCENT"
+	Slider "Music boost",               "snd_musicboost",      1, 8, 0.25, 2
 	Slider "$SNDMNU_FOOTSTEPVOLUME",    "snd_footstepvolume",  0, 1, 0.01, 0, "", 0, Gray, 100, "$VALFORMAT_PERCENT"
 	StaticText " "
 	Slider "$SNDMNU_MENUVOLUME",        "snd_menuvolume",      0, 1, 0.01, 0, "", 0, Gray, 100, "$VALFORMAT_PERCENT"
