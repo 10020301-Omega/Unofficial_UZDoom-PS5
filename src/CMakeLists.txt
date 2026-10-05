@@ -1509,6 +1509,9 @@ else()
 	endif()
 endif()
 
+# PS5: neither is shipped (ps5/tools/stage-title.sh says why), and the port's
+# source archive leaves both folders out.
+if( NOT PS5 )
 add_custom_command(TARGET zdoom POST_BUILD
 	COMMAND ${CMAKE_COMMAND} -E copy_directory
 		"${CMAKE_SOURCE_DIR}/soundfont"
@@ -1520,6 +1523,7 @@ add_custom_command(TARGET zdoom POST_BUILD
 
 	VERBATIM
 )
+endif()
 
 if (VCPKG_TOOLCHAIN)
 	x_vcpkg_install_local_dependencies(TARGETS zdoom DESTINATION ".")

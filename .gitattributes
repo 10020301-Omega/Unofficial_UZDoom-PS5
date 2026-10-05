@@ -26,3 +26,21 @@ language.*	text
 *.flac		binary
 *.dat		binary
 *.ico		binary
+
+# PS5 port: left out of the source archive that travels with the title
+# (git archive, ps5/tools/package-source.sh). None of these is used to build
+# the console title, and each has a reason not to be passed on with it:
+#   soundfont/uzdoom.sf2     its header reads "Copyright 1996 Roland Corporation
+#                            U.S."; the repository states no licence for it
+#   fm_banks/                instrument banks, a licence each
+#   bin/                     prebuilt Windows libraries, without their source
+#   wadsrc_bm, wadsrc_widepix, wadsrc_extra/nonfree
+#                            made from the commercial games' art, under terms
+#                            of their own (may not be sold; only for use with
+#                            the original games)
+/soundfont/uzdoom.sf2 export-ignore
+/fm_banks export-ignore
+/bin export-ignore
+/wadsrc_bm/static export-ignore
+/wadsrc_widepix/static export-ignore
+/wadsrc_extra/nonfree export-ignore

@@ -72,6 +72,16 @@ which, as the path an FTP client uses.
 Launcher: D-pad or left stick to move, Cross to choose, Circle to go back,
 Options to start. In the game the pad is UZDoom's standard gamepad.
 
+## What the source archive leaves out
+
+`_source/uzdoom-*.tar.xz` is this repository at the revision built, without
+(`.gitattributes`, `export-ignore`): `soundfont/uzdoom.sf2`, `fm_banks/`,
+`bin/` (prebuilt Windows libraries), and the art made from the commercial
+games (`wadsrc_bm/static`, `wadsrc_widepix/static`, `wadsrc_extra/nonfree`).
+None is used to build the console title, which is configured with
+`BUILD_NONFREE=OFF`; all are in upstream UZDoom at the revision named in
+`_source/SOURCES.txt`.
+
 ## What is proven
 
 Proven on a PC:
