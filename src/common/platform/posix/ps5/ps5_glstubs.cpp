@@ -12,6 +12,7 @@
 */
 
 #include "c_cvars.h"
+#include "menu.h"
 #include "zstring.h"
 
 CVAR(Int, gl_multisample, 1, CVAR_ARCHIVE|CVAR_GLOBALCONFIG);
@@ -24,4 +25,21 @@ void PrintVRAM_NV(FString &)
 
 void PrintVRAM_ATI(FString &)
 {
+}
+
+// The stereo-3D menu's list of modes, without quad-buffered stereo, which
+// only OpenGL on a desktop offered (common/rendering/gl/gl_stereo3d.cpp).
+void UpdateVRModes(bool)
+{
+	FOptionValues **pVRModes = OptionValues.CheckKey("VRMode");
+	if (pVRModes == nullptr) return;
+
+	TArray<FOptionValues::Pair> &vals = (*pVRModes)->mValues;
+	TArray<FOptionValues::Pair> filteredValues;
+	for (unsigned i = 0; i < vals.Size(); ++i)
+	{
+		if (vals[i].Value == 7) continue;	// Quad-buffered stereo
+		filteredValues.Push(vals[i]);
+	}
+	vals = filteredValues;
 }

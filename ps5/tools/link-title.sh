@@ -76,10 +76,53 @@ stub libSceAgcDriver vendor/ps5/sdk/stubs/agc_driver_canary_link_stub.c
 source "$vulkan/tools/radv-link.sh"
 radv_link_recipe "$vulkan" "$sdk" "$archive" || exit 2
 
+# The recipe binds the libc names RADV needs to the platform layer's ps5_*
+# functions. The engine calls more of libc than RADV does, so the same is done
+# for the rest: every name the link's inputs leave undefined that the platform
+# layer implements (realpath, getcwd, sysconf, isatty, umask, gethostbyname ...
+# each missing, refused or faulting on the console: ps5platform/libc.h says
+# which), and the few the port implements itself (uzps5_*, ps5_libc.cpp). A
+# bound name stays local, as the recipe keeps its own: a title must not export.
+nm="$sdk/bin/llvm-nm"
+already=$(printf '%s\n' "${radv_link_flags[@]}" | sed -n 's/^--defsym=\([^=]*\)=.*/\1/p; s/^--wrap=//p' | sort -u)
+archives=()
+for input in "${radv_link_inputs[@]}"; do
+    [[ $input == *.a ]] && archives+=("$input")
+done
+wanted=$("$nm" --undefined-only "${objects[@]}" "${libraries[@]}" "${archives[@]}" 2> /dev/null |
+    awk '$1 == "U" { print $2 }' | sort -u)
+platform_has=$("$nm" --defined-only "$sdk/target/lib/libps5platform.a" 2> /dev/null |
+    awk '$2 == "T" && $3 ~ /^ps5_/ { print substr($3, 5) }' | sort -u)
+port_has=$("$nm" --defined-only "${objects[@]}" 2> /dev/null |
+    awk '$2 == "T" && $3 ~ /^uzps5_/ { print substr($3, 7) }' | sort -u)
+bound=()
+for name in $(comm -12 <(echo "$wanted") <(echo "$platform_has") | comm -23 - <(echo "$already")); do
+    radv_link_flags+=("--defsym=$name=ps5_$name")
+    bound+=("$name")
+done
+for name in $(comm -12 <(echo "$wanted") <(echo "$port_has") | comm -23 - <(echo "$already")); do
+    radv_link_flags+=("--defsym=$name=uzps5_$name")
+    bound+=("$name")
+done
+# The same goes for a function the engine defines under a name a system
+# library also has (its own isnan, for one): the linker would export the
+# engine's to stand in for the library's. The engine keeps its own, privately.
+stub_names=$(for library in "$sdk"/target/lib/*.so; do
+    "$nm" -D --defined-only "$library" 2> /dev/null | awk '{ print $NF }'
+done | sort -u)
+shadowed=$("$nm" --defined-only --extern-only "${objects[@]}" 2> /dev/null |
+    awk 'NF == 3 && $2 ~ /^[TDBRW]$/ { print $3 }' | sort -u | comm -12 - <(echo "$stub_names"))
+[[ -z $shadowed ]] || echo "==> kept private (the engine's own, named like a system function): ${shadowed//$'\n'/ }"
+{
+    printf '{\n    local:\n'
+    printf '        %s;\n' "${bound[@]}" $shadowed
+    printf '};\n'
+} > "$work/bound-local.map"
+radv_link_flags+=(--version-script "$work/bound-local.map")
+printf '%s\n' "${bound[@]}" > "$work/bound-names.txt"
+echo "==> bound to the platform layer or the port: ${bound[*]}"
+
 # The engine's libraries name each other in both directions: one group.
-# -z nostart-stop-gc: the engine finds its classes, console variables and
-# commands in sections it walks from __start_ to __stop_ symbols; the linker
-# must not discard them as unreferenced.
 # --wrap=exit: exit() ends a title as a crash; calls to it go to the port's
 # __wrap_exit (ps5_main.cpp), which asks the shell to close the title.
 # --no-dynamic-linker: Mesa names every Vulkan entry point through weak
@@ -89,7 +132,7 @@ radv_link_recipe "$vulkan" "$sdk" "$archive" || exit 2
 # link script does not pass it and failed that way here with LLD 18.1.3.
 "$sdk/bin/prospero-lld" "${radv_linker_script[@]}" --eh-frame-hdr "${radv_link_flags[@]}" \
     --version-script "$native/app-symbols.map" --exclude-libs=ALL \
-    -z nostart-stop-gc --no-dynamic-linker --wrap=exit --error-limit=0 -e _start -o "$output" \
+    --no-dynamic-linker --wrap=exit --error-limit=0 -e _start -o "$output" \
     "$work/obj/app_crt.o" "${objects[@]}" \
     --start-group "${libraries[@]}" --end-group \
     "$work/stubs/libSceAgc.so" "$work/stubs/libSceAgcDriver.so" \

@@ -152,7 +152,6 @@ const char *PS5_UserRootShown()
 
 static void SetUpFolders()
 {
-	umask(0);
 	PS5_ChooseUserRoot();
 	static const char *const folders[] = { "/iwads", "/mods", "/saves", "/config", "/cache", "/data", "/screenshots" };
 	for (const char *folder : folders)
