@@ -100,7 +100,10 @@ else()
 	endif()
 
 	# Non-Windows version also needs SDL except native OS X backend
-	if( NOT APPLE OR NOT OSX_COCOA_BACKEND )
+	# PS5: the console has its own backend (common/platform/posix/ps5) and no SDL
+	if( PS5 )
+		add_definitions( -DUZDOOM_PS5=1 )
+	elseif( NOT APPLE OR NOT OSX_COCOA_BACKEND )
 		find_package( SDL2 REQUIRED )
 		include_directories( SYSTEM "${SDL2_INCLUDE_DIR}" )
 		link_directories(${SDL2_LINK_DIR})
@@ -415,6 +418,18 @@ set( PLAT_SDL_SOURCES
 	common/platform/posix/sdl/st_start.cpp )
 set( PLAT_UNIX_SOURCES
 	common/platform/posix/unix/i_specialpaths.cpp )
+# PS5: the console's backend, and the launcher shown before the engine starts
+set( PLAT_PS5_SOURCES
+	common/platform/posix/ps5/console/platform.c
+	common/platform/posix/ps5/hardware.cpp
+	common/platform/posix/ps5/ps5_input.cpp
+	common/platform/posix/ps5/ps5_launcher.cpp
+	common/platform/posix/ps5/ps5_main.cpp
+	common/platform/posix/ps5/ps5_system.cpp
+	common/platform/posix/ps5/ps5_video.cpp
+	common/platform/posix/ps5/st_start.cpp
+	../ps5/launcher/launcher.cpp
+	../ps5/launcher/textscreen.cpp )
 set( PLAT_OSX_SOURCES
 	common/platform/posix/osx/iwadpicker_cocoa.mm
 	common/platform/posix/osx/i_specialpaths.mm
@@ -450,12 +465,26 @@ elseif( APPLE )
 
 	set_source_files_properties( posix/osx/zdoom.icns PROPERTIES MACOSX_PACKAGE_LOCATION Resources )
 	set_source_files_properties( common/platform/posix/osx/iwadpicker_cocoa.mm PROPERTIES COMPILE_FLAGS -fobjc-exceptions )
+elseif( PS5 )
+	set( SYSTEM_SOURCES_DIR common/platform/posix common/platform/posix/ps5 ../ps5/launcher ${CMAKE_CURRENT_BINARY_DIR}/ps5 )
+	set( SYSTEM_SOURCES ${PLAT_POSIX_SOURCES} ${PLAT_PS5_SOURCES} ${PLAT_UNIX_SOURCES} )
+	set( OTHER_SYSTEM_SOURCES ${PLAT_WIN32_SOURCES} ${PLAT_OSX_SOURCES} ${PLAT_COCOA_SOURCES} ${PLAT_SDL_SOURCES} )
+
+	# The launcher's font: code page 437 from the engine's console font
+	add_custom_command( OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/ps5/font_cp437.inc
+		COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/ps5
+		COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/ps5/tools/make-font.py
+			${CMAKE_SOURCE_DIR}/wadsrc/static/newconsolefont.hex ${CMAKE_CURRENT_BINARY_DIR}/ps5/font_cp437.inc
+		DEPENDS ${CMAKE_SOURCE_DIR}/ps5/tools/make-font.py ${CMAKE_SOURCE_DIR}/wadsrc/static/newconsolefont.hex
+		VERBATIM )
+	set_source_files_properties( ../ps5/launcher/textscreen.cpp PROPERTIES
+		OBJECT_DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/ps5/font_cp437.inc" )
 else()
 	option (SYSTEMINSTALL "Set global progdir based on CMake Install Dir" OFF)
 
 	set( SYSTEM_SOURCES_DIR common/platform/posix common/platform/posix/sdl )
 	set( SYSTEM_SOURCES ${PLAT_POSIX_SOURCES} ${PLAT_SDL_SOURCES} ${PLAT_UNIX_SOURCES} )
-	set( OTHER_SYSTEM_SOURCES ${PLAT_WIN32_SOURCES} ${PLAT_OSX_SOURCES} ${PLAT_COCOA_SOURCES} )
+	set( OTHER_SYSTEM_SOURCES ${PLAT_WIN32_SOURCES} ${PLAT_OSX_SOURCES} ${PLAT_COCOA_SOURCES} ${PLAT_PS5_SOURCES} )
 
 	if ( SYSTEMINSTALL )
 		add_definitions( -DPROGDIR="${CMAKE_INSTALL_PREFIX}/${INSTALL_PK3_PATH}" )
@@ -1279,8 +1308,22 @@ set( GAME_SOURCES
 	common/filesystem/source/critsec.cpp
 )
 
+if( PS5 )
+	# No OpenGL on the console: the Vulkan renderer only
+	list( FILTER GAME_SOURCES EXCLUDE REGEX "common/rendering/gl(_load)?/.*\\.(c|cpp)$" )
+	list( FILTER PCH_SOURCES EXCLUDE REGEX "common/rendering/gl(_load)?/.*\\.(c|cpp)$" )
+endif()
+
 set( GAME_NONPCH_SOURCES ${GAME_SOURCES} )
 list( REMOVE_ITEM GAME_NONPCH_SOURCES ${PCH_SOURCES} )
+
+if( PS5 )
+	# The console's link is PS5_Vulkan's (RADV, the platform layer, its own
+	# start-up code and conversion tool): ps5/tools/link-title.sh does it.
+	set( PS5_VULKAN_DIR "${CMAKE_SOURCE_DIR}/../PS5_Vulkan" CACHE PATH "the PS5_Vulkan checkout (RADV archive, link recipe, packaging)" )
+	set( CMAKE_CXX_LINK_EXECUTABLE
+		"${CMAKE_COMMAND} -E env PS5_VULKAN_DIR=${PS5_VULKAN_DIR} PS5_PAYLOAD_SDK=${PS5_PAYLOAD_SDK} bash ${CMAKE_SOURCE_DIR}/ps5/tools/link-title.sh <TARGET> <OBJECTS> --libs <LINK_LIBRARIES>" )
+endif()
 
 add_executable( zdoom MACOSX_BUNDLE ${GAME_SOURCES} )
 

@@ -154,7 +154,11 @@ target_include_directories ( fluidsynth PRIVATE
 )
 
 
-if (NOT WIN32)
+if (PS5)
+   # No GLib on the console: utils/posix_glibstubs stands in for the parts used
+   target_sources ( fluidsynth PRIVATE utils/posix_glibstubs.c utils/posix_glibstubs.h )
+   target_compile_definitions ( fluidsynth PRIVATE WITH_GLIB_STUBS )
+elseif (NOT WIN32)
    find_package(PkgConfig REQUIRED)
    pkg_search_module(GLIB REQUIRED glib-2.0)
    target_include_directories ( fluidsynth PUBLIC ${GLIB_INCLUDE_DIRS} )

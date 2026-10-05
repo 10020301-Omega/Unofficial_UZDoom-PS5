@@ -178,7 +178,10 @@ typedef gintptr  intptr_t;
 #include <gmodule.h>
 #endif
 
-#ifndef WIN32
+#if defined(WITH_GLIB_STUBS) && !defined(_WIN32)
+/* A POSIX system without GLib (the PS5): the same stand-ins as on Windows */
+#include "posix_glibstubs.h"
+#elif !defined(WIN32)
 #include <glib/gstdio.h>
 #endif
 

@@ -44,3 +44,6 @@ wadsrc/static/meta.xml
 /src/gl/unused
 /mapfiles_release/*.map
 .cache/
+
+# PS5 port: generated
+/ps5/launcher/font_cp437.inc

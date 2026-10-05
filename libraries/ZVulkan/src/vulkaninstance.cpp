@@ -38,12 +38,22 @@ void VulkanInstance::ReleaseResources()
 	Instance = nullptr;
 }
 
+#if defined(__PROSPERO__)
+// PS5: there is no Vulkan loader to find. The driver (RADV) is linked into
+// the title, and this is its entry point.
+extern "C" VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vk_icdGetInstanceProcAddr(VkInstance instance, const char* name);
+#endif
+
 void VulkanInstance::InitVolk()
 {
+#if defined(__PROSPERO__)
+	volkInitializeCustom(vk_icdGetInstanceProcAddr);
+#else
 	if (volkInitialize() != VK_SUCCESS)
 	{
 		VulkanError("Unable to find Vulkan");
 	}
+#endif
 	auto iver = volkGetInstanceVersion();
 	if (iver == 0)
 	{

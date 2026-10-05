@@ -280,7 +280,13 @@ include( TargetArch )
 target_architecture(TARGET_ARCHITECTURE)
 
 if( ${TARGET_ARCHITECTURE} MATCHES "x86_64" )
-	set( HAVE_VM_JIT ON )
+	# PS5: the script JIT writes machine code at run time, which needs the
+	# console's own executable-memory calls. Off until that is ported and
+	# proven on hardware; scripts run in the interpreter.
+	option( PS5_VM_JIT "PS5: build the script JIT" OFF )
+	if( NOT PS5 OR PS5_VM_JIT )
+		set( HAVE_VM_JIT ON )
+	endif()
 	if( NOT MSVC )
 		add_compile_options(-msse3)
 	endif()
