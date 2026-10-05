@@ -44,3 +44,4 @@ language.*	text
 /wadsrc_bm/static export-ignore
 /wadsrc_widepix/static export-ignore
 /wadsrc_extra/nonfree export-ignore
+/ps5/SOURCE-REVISION export-subst

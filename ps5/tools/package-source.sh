@@ -45,6 +45,9 @@ for part in parts:
                   f'  not archived here (no source obligation): {src["revision"]}', f'  {src["url"]}', ""]
         continue
     rev = src["revision"]
+    if not (Path(src["path"]) / ".git").exists():
+        sys.exit(f"package-source.sh: {src['path']} is not a git repository (an unpacked source archive?). "
+                 "Pass the archives you received on as they are, or put your changes in a repository first.")
     name = f'{part["id"]}-{rev[:12]}'
     archive = out / f"{name}.tar.xz"
     print(f"==> [source] {archive.name}", flush=True)

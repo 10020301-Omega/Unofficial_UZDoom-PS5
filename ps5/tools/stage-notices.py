@@ -45,8 +45,29 @@ def git(repo, *args):
     return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, check=True).stdout.strip()
 
 
+UPSTREAM_URL = "https://github.com/UZDoom/UZDoom"
+UPSTREAM_REVISION = "809e46c25fe2a2f89430de3fbac89626100df384"
+
+
+def unpacked(repo):
+    """Is this the port's source unpacked from its archive, with no repository around it?"""
+    return not (Path(repo) / ".git").exists() and (Path(repo) / "ps5/SOURCE-REVISION").exists()
+
+
+def tracked_files(repo, rev):
+    """The files of a revision; of the folder, when it is an unpacked archive."""
+    if unpacked(repo):
+        skip = ("build/", "dist/")
+        return sorted(str(p.relative_to(repo)) for p in Path(repo).rglob("*")
+                      if p.is_file() and not str(p.relative_to(repo)).startswith(skip))
+    return git(repo, "ls-tree", "-r", "--name-only", rev).splitlines()
+
+
 def revision(repo):
     """The repository's HEAD, its remote, and whether its tracked files differ from it."""
+    if unpacked(repo):
+        # git archive wrote the revision into this file (export-subst)
+        return (Path(repo) / "ps5/SOURCE-REVISION").read_text().strip(), False, UPSTREAM_URL
     rev = git(repo, "rev-parse", "HEAD")
     dirty = bool(git(repo, "status", "--porcelain", "--untracked-files=no"))
     remotes = git(repo, "remote").split()
@@ -64,6 +85,9 @@ def pinned(script, name):
 def write_text(dest, repo, rev, path):
     """A file of a repository at a revision, into the licenses folder."""
     dest.parent.mkdir(parents=True, exist_ok=True)
+    if unpacked(repo):
+        dest.write_bytes((Path(repo) / path).read_bytes())
+        return
     data = subprocess.run(["git", "-C", str(repo), "show", f"{rev}:{path}"], capture_output=True, check=True).stdout
     dest.write_bytes(data)
 
@@ -121,9 +145,9 @@ def main():
 
     # The engine and everything in its tree, with the port
     rev, dirty, remote = revision(ROOT)
-    upstream = git(ROOT, "merge-base", rev, "809e46c25fe2a2f89430de3fbac89626100df384")
+    upstream = UPSTREAM_REVISION if unpacked(ROOT) else git(ROOT, "merge-base", rev, UPSTREAM_REVISION)
     count = 0
-    for path in git(ROOT, "ls-tree", "-r", "--name-only", rev).splitlines():
+    for path in tracked_files(ROOT, rev):
         if path.startswith(NOT_SHIPPED) or not path.startswith(LICENCE_ROOTS):
             continue
         if path.startswith(("docs/licenses/", "libraries/ZMusic/licenses/")) or "/credits/" in path or LICENCE_FILE.search(path):
