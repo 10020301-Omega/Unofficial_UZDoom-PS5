@@ -10,8 +10,12 @@ start options are chosen with the pad.
 Not made, endorsed or supported by the UZDoom team, id Software or Sony
 Interactive Entertainment. No game data is included.
 
-**Status: builds and links; not yet run on a console.** See "What is proven"
-at the end.
+**Status: runs on a console.** It starts, the launcher works, and DOOM and
+mods (Brutal Doom among them) play with picture, pad and music. See "What is
+proven" at the end.
+
+Parts of the port were written with an AI system; see "AI disclosure" in the
+repository's top-level README, and `AI-DISCLOSURE.txt` in the title folder.
 
 ## What the port adds to UZDoom
 
@@ -85,24 +89,26 @@ None is used to build the console title, which is configured with
 
 ## What is proven
 
+Seen working on one console:
+- it starts, and returns to the home screen when the game is quit;
+- the launcher, the display (3840 x 2160 at 59.94 Hz), the pad;
+- DOOM and mods load and play; `/data/uzdoom/` is used for the user's files;
+- music (FluidSynth with the shipped SoundFont).
+
 Proven on a PC:
-- the engine, with the console backend, compiles for `x86_64-sie-ps5` and links
-  against the RADV archive with the toolkit's link recipe, and the result
-  converts to a signed `eboot.bin`;
 - the launcher's logic and drawing (`ps5/launcher/test_launcher.cpp`).
 
-Not proven, because nothing has run on a console yet:
-- that it starts at all;
-- the display and swapchain, the pad, sound;
-- every C library call the engine makes (the console lacks or refuses some
-  that link);
-- performance.
+Not proven:
+- sound effects in OGG, FLAC, Opus and MP3 (the decoders are linked in, but
+  nobody has confirmed hearing them on the console yet);
+- anything on a second console or another firmware;
+- Heretic, Hexen, Strife and the other supported games (only DOOM was played);
+- performance under heavy mods.
 
 Known gaps:
-- No OGG, FLAC or MP3 decoding yet (libsndfile and mpg123 are not built for the
-  console), so mods with music or sounds in those formats are silent there.
 - The script JIT is off; scripts run in the interpreter.
-- No SoundFont is shipped (see `tools/stage-title.sh`), so MIDI music uses the OPL
-  emulation unless the user adds one.
 - No keyboard: the console (`~`) and text entry are not reachable.
-- One player. Split-screen is not started.
+- Quitting the game closes the title; it does not go back to the launcher.
+- One player. Split-screen and network play are not started.
+- Music is quiet at the engine's defaults; "Music boost" in Sound Options
+  (`snd_musicboost`) makes up for it.

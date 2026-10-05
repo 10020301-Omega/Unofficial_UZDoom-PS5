@@ -158,6 +158,10 @@ in _source/, one archive per part, with _source/SOURCES.txt saying which is
 which. If you pass this title on, pass the whole folder on, _source/
 included.
 
+The port's source is also published at
+https://github.com/10020301-Omega/Unnofficial_UZDoom-PS5
+but _source/ is the source that goes with this build.
+
 AI: parts of this port were written with the help of an AI system; see
 AI-DISCLOSURE.txt.
 
@@ -344,10 +348,10 @@ def main():
             "(the build host had no copy of the text to include)\n")
 
     (out / "components.json").write_text(json.dumps(parts, indent=1, ensure_ascii=False) + "\n")
-    legal = LEGAL.format(name=name, rule="=" * (len(name) + 35))
+    legal = LEGAL.format(name=name, rule="=" * (len(name) + 33))
     (app / "LEGAL.txt").write_text(legal)
     (app / "AI-DISCLOSURE.txt").write_text(
-        AI_DISCLOSURE.format(name=name, rule="=" * (len(name) + 37)))
+        AI_DISCLOSURE.format(name=name, rule="=" * (len(name) + 34)))
     lines = [legal, "", "The parts of this title", "=======================", ""]
     for p in parts:
         src = p["source"]

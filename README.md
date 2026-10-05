@@ -1,3 +1,96 @@
+# UZDoom for PlayStation 5 (unofficial)
+
+An unofficial port of [UZDoom](https://github.com/UZDoom/UZDoom) to the
+PlayStation 5 as a homebrew title. It renders with UZDoom's Vulkan renderer on
+RADV (Mesa's Vulkan driver, built for the console with
+[PS5_VulkanTemplate](https://github.com/mihawk-99/PS5_VulkanTemplate)), and
+starts in a DOS-style launcher where the game, the mods and the start options
+are chosen with the pad.
+
+![The launcher](ps5/screens/launcher.png)
+
+**Not made, endorsed or supported by the UZDoom team, id Software, Sony
+Interactive Entertainment or Anthropic.** Please do not report problems with
+this port to the UZDoom developers.
+
+## What you need
+
+- A PlayStation 5 that can run homebrew. This repository contains nothing that
+  makes a console able to; that is up to you, and it may void the console's
+  warranty or breach the platform's terms of service.
+- Your own game files (`DOOM.WAD`, `DOOM2.WAD`, ... or
+  [Freedoom](https://freedoom.github.io/)). **No game data is included, and
+  none will be provided or linked to.**
+
+## Installing
+
+1. Build the title folder (below), or take it from a release.
+2. Copy the folder `PPSA99666` to `/data/homebrew/` on the console.
+3. Copy game files to `/data/uzdoom/iwads/` and mods (`.pk3`, `.wad`) to
+   `/data/uzdoom/mods/`, by FTP. The launcher shows the exact folder it reads.
+4. Start "UZDoom" from the home screen.
+
+## Controls
+
+Launcher: D-pad or left stick to move, Cross to choose, Circle to go back,
+L1/R1 to page, Options to start the game.
+
+In the game the pad uses UZDoom's standard gamepad bindings, which can be
+changed under Options. There is no keyboard support yet.
+
+![Choosing mods](ps5/screens/mods.png)
+
+## Limits
+
+Single player only for now. Quitting the game closes the title. The script JIT
+is off. The full list is in [ps5/README.md](ps5/README.md).
+
+## Building
+
+On a Linux PC; see [ps5/README.md](ps5/README.md) for the toolkit layout and
+the packages needed.
+
+```bash
+ps5/tools/build.sh                           # the title folder, dist/PPSA99666/
+ps5/tools/package-source.sh dist/PPSA99666   # for a release: adds _source/
+```
+
+## Licence
+
+GPL-3.0-or-later, as UZDoom is ([LICENSE](LICENSE)). A built title folder
+carries the licence of every part in `licenses/` and the complete matching
+source in `_source/`; if you pass a build on, pass those on with it.
+
+This repository is UZDoom with the port's changes on top (branch history is
+kept). Everything outside `ps5/`, `src/common/platform/posix/ps5/` and the
+small patches listed in [ps5/README.md](ps5/README.md) is the UZDoom team's
+work.
+
+## AI disclosure
+
+The PS5-specific work here - the platform layer, the launcher, the build and
+packaging scripts, the patches and the documentation - was written by Claude,
+an AI model made by Anthropic, under the direction of the port's maintainer,
+who ran and tested the builds on a console. AI-written code can contain
+mistakes that testing has not found; the port has been played on one console
+and has not been audited. There is no warranty.
+
+## Credits
+
+- The [UZDoom](https://github.com/UZDoom/UZDoom) team, and ZDoom and GZDoom
+  before it.
+- mihawk-99 for [PS5_VulkanTemplate](https://github.com/mihawk-99/PS5_VulkanTemplate),
+  PS5_Vulkan and the RADV port; the PS5 payload SDK authors.
+- Mesa (RADV), OpenAL Soft, FluidSynth, libsndfile, mpg123, Xiph.Org's codecs.
+- S. Christian Collins for the GeneralUser GS SoundFont.
+
+"PlayStation" and "PS5" are trademarks of Sony Interactive Entertainment Inc.
+DOOM is a trademark of id Software LLC.
+
+---
+
+*What follows is UZDoom's own README, unchanged.*
+
 <div align="center">
 
 [ <img src="branding/misc/logo-bg.svg" alt="UZDoom Icon" style="height: 8em; width: 100%" /> ][repo]
