@@ -5,6 +5,7 @@
 
 Writes, beside eboot.bin:
 
+  AI-DISCLOSURE.txt         which parts were written with an AI system
   LEGAL.txt                 what the title is, what it is licensed under, trademarks
   licenses/README.txt       the same notice, then every part: licence, copyright, source
   licenses/components.json  the same parts as data, each with the revision it was built
@@ -99,6 +100,41 @@ def write_tree(dest, repo, rev, path):
     subprocess.run(["tar", "-x", "-C", str(dest), "--strip-components", str(len(Path(path).parts))], input=tar, check=True)
 
 
+AI_DISCLOSURE = """{name} for PlayStation 5 - AI disclosure
+{rule}
+
+Parts of this port were written with the help of an AI system.
+
+What that covers: the PS5-specific work in this title - the platform layer
+(video, input, sound output, start-up), the DOS-style launcher, the build,
+link and packaging scripts, the patches to the engine and its libraries
+that make them build for the console, and the documentation, this file
+included. That work was produced by Claude, an AI model made by Anthropic,
+working under the direction of the person who maintains the port, who ran
+and tested the builds on a console.
+
+What it does not cover: UZDoom itself, the Vulkan driver (RADV), OpenAL
+Soft, the audio decoders, the SoundFont and the other third-party parts are
+their authors' own work, unchanged except for the patches named above. They
+are listed, each with its licence, in licenses/README.txt.
+
+What to keep in mind:
+  - AI-written code can contain mistakes that a person would not make and
+    that testing has not found. This port has been played on one console;
+    it has not been audited, and nobody upstream has reviewed it.
+  - It is provided as it is, with no warranty (see LEGAL.txt). You run it
+    at your own risk.
+  - Every change the port makes can be read: the complete source is in
+    _source/, and the port's own files carry a "PS5-UZDOOM port
+    contributors" notice.
+  - The port is not made, endorsed or supported by Anthropic, by the UZDoom
+    team, by id Software or by Sony Interactive Entertainment. Please do
+    not send reports about this port to the UZDoom developers.
+
+The port's AI-assisted parts are offered under the same licence as the
+rest of it, GPL-3.0-or-later.
+"""
+
 LEGAL = """{name} for PlayStation 5 - legal notice
 {rule}
 
@@ -121,6 +157,9 @@ Source: the complete corresponding source of everything in this folder is
 in _source/, one archive per part, with _source/SOURCES.txt saying which is
 which. If you pass this title on, pass the whole folder on, _source/
 included.
+
+AI: parts of this port were written with the help of an AI system; see
+AI-DISCLOSURE.txt.
 
 There is no warranty, to the extent permitted by law. Running homebrew
 needs a modified console, which may void its warranty or breach the
@@ -307,6 +346,8 @@ def main():
     (out / "components.json").write_text(json.dumps(parts, indent=1, ensure_ascii=False) + "\n")
     legal = LEGAL.format(name=name, rule="=" * (len(name) + 35))
     (app / "LEGAL.txt").write_text(legal)
+    (app / "AI-DISCLOSURE.txt").write_text(
+        AI_DISCLOSURE.format(name=name, rule="=" * (len(name) + 37)))
     lines = [legal, "", "The parts of this title", "=======================", ""]
     for p in parts:
         src = p["source"]

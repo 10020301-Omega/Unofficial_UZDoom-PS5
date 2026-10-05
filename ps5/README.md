@@ -58,6 +58,7 @@ the small native build that makes the build's own tools).
   eboot.bin  sce_sys/  sce_module/
   uzdoom.pk3  lights.pk3  game_support.pk3
   LEGAL.txt  licenses/           what it is licensed under, readable as they are
+  AI-DISCLOSURE.txt              which parts were written with an AI system
   _source/                       the complete source, one .tar.xz a part
   iwads/  mods/  soundfonts/     the user's files, when /data cannot be reached
   saves/  config/  uzdoom.log    written by the title

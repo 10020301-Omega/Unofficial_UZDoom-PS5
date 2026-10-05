@@ -9,6 +9,7 @@
 #     sce_module/libc.prx     the C library module titles load (PS5_Vulkan's)
 #     uzdoom.pk3 ...          the engine's own data
 #     LEGAL.txt, licenses/    what it is licensed under, part by part
+#     AI-DISCLOSURE.txt       which parts were written with an AI system
 #     iwads/ mods/            empty: where games and mods go when the title
 #                             cannot reach /data (see ps5_paths.h)
 #
