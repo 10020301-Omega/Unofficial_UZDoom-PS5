@@ -145,7 +145,11 @@ def main():
         modifications=f"the PS5 port: every change since UZDoom {upstream[:12]} (git log {upstream[:12]}..{rev[:12]})",
         artifacts=["eboot.bin", "uzdoom.pk3", "lights.pk3", "game_support.pk3", "sce_sys/icon0.png"],
         texts="licenses/uzdoom/",
-        source=dict(kind="git", path=str(ROOT), remote=remote, revision=rev, dirty=dirty, upstream=upstream)))
+        # The port has no public repository: its revision exists only in the
+        # archive that travels with the title.
+        source=dict(kind="git", path=str(ROOT),
+                    remote=f"this port, not published elsewhere: _source/ holds it; upstream {remote} at {upstream}",
+                    revision=rev, dirty=dirty, upstream=upstream)))
 
     # OpenAL Soft, with the port's output backend
     openal = deps / "src/openal-soft"
@@ -243,7 +247,8 @@ def main():
     lines = [legal, "", "The parts of this title", "=======================", ""]
     for p in parts:
         src = p["source"]
-        where = f'{src["remote"]} at {src["revision"]}' if src["kind"] == "git" else f'{src["revision"]}: {src["url"]}'
+        where = (f'{src["remote"]} (revision {src["revision"]})' if src["kind"] == "git"
+                 else f'{src["revision"]}: {src["url"]}')
         lines += [p["name"], f'  licence:   {p["licence"]}', f'  copyright: {"; ".join(p["copyright"])}',
                   f'  changes:   {p["modifications"]}', f'  in:        {", ".join(p["artifacts"])}',
                   f'  texts:     {p["texts"]}', f'  source:    {where}', ""]
