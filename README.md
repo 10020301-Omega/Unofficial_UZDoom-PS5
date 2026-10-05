@@ -13,6 +13,13 @@ are chosen with the pad.
 Interactive Entertainment or Anthropic.** Please do not report problems with
 this port to the UZDoom developers.
 
+## Why this exists
+
+It started as an experiment: its maintainer wanted to try something and see
+whether DOOM - a modern source port of it, mods and all - could be made to run
+on a PlayStation 5 with an open Vulkan driver. It can. It is a hobby project,
+offered as it is, in case it is useful or fun for someone else.
+
 ## What you need
 
 - A PlayStation 5 that can run homebrew. This repository contains nothing that
