@@ -90,3 +90,68 @@ if [[ ! -f $prefix/lib/libopenal.a || $(cat "$prefix/.openal-revision" 2> /dev/n
     echo "$openal_stamp" > "$prefix/.openal-revision"
 fi
 echo "==> [deps] OpenAL Soft: $prefix/lib/libopenal.a"
+
+# The audio decoders ZMusic uses for sounds and music that are not in Doom's
+# own formats: Ogg Vorbis, Opus, FLAC and WAV through libsndfile, MP3 through
+# libmpg123. On a desktop ZMusic loads the two at run time; the console
+# refuses to load a library a title brings, so they are linked in.
+#   libogg, libvorbis, libFLAC, libopus   BSD-3-Clause
+#   libsndfile, libmpg123                 LGPL-2.1-or-later
+cmake_dep() {  # cmake_dep <name> <url> <tag or branch> <archive it makes> <source subfolder> [cmake arguments...]
+    local name=$1 url=$2 ref=$3 made=$4 sub=$5
+    shift 5
+    if [[ -f $prefix/lib/$made && $(cat "$prefix/.$name-revision" 2> /dev/null) == "$ref" ]]; then
+        echo "==> [deps] $name: $prefix/lib/$made"
+        return
+    fi
+    echo "==> [deps] $name $ref"
+    mkdir -p "$prefix/src"
+    rm -rf "$prefix/src/$name" "$prefix/build/$name"
+    git clone -q --depth 1 --branch "$ref" "$url" "$prefix/src/$name" 2> /dev/null
+    git -C "$prefix/src/$name" rev-parse HEAD > "$prefix/.$name-commit"
+    cmake -S "$prefix/src/$name/$sub" -B "$prefix/build/$name" -G Ninja \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_TOOLCHAIN_FILE="$sdk/toolchain/prospero.cmake" -DCMAKE_VERBOSE_MAKEFILE=OFF \
+        -DCMAKE_INSTALL_PREFIX="$prefix" -DCMAKE_PREFIX_PATH="$prefix" -DCMAKE_FIND_ROOT_PATH="$prefix" \
+        -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -DCMAKE_C_FLAGS="-fno-omit-frame-pointer -ffunction-sections -fdata-sections" \
+        -DCMAKE_CXX_FLAGS="-fno-omit-frame-pointer -ffunction-sections -fdata-sections" \
+        -DBUILD_SHARED_LIBS=OFF -DBUILD_TESTING=OFF "$@" \
+        > "$prefix/build/$name.configure.log" 2>&1 ||
+        { tail -20 "$prefix/build/$name.configure.log" >&2; exit 1; }
+    ninja -C "$prefix/build/$name" install > "$prefix/build/$name.build.log" 2>&1 ||
+        { grep -E "error|FAILED" "$prefix/build/$name.build.log" | head -20 >&2; exit 1; }
+    [[ -f $prefix/lib/$made ]] || { echo "build-deps.sh: $name did not make lib/$made" >&2; exit 1; }
+    echo "$ref" > "$prefix/.$name-revision"
+}
+
+cmake_dep libogg https://github.com/xiph/ogg.git v1.3.6 libogg.a . -DINSTALL_DOCS=OFF
+cmake_dep libvorbis https://github.com/xiph/vorbis.git v1.3.7 libvorbis.a .
+cmake_dep libflac https://github.com/xiph/flac.git 1.5.0 libFLAC.a . \
+    -DBUILD_PROGRAMS=OFF -DBUILD_EXAMPLES=OFF -DBUILD_DOCS=OFF -DINSTALL_MANPAGES=OFF -DBUILD_CXXLIBS=OFF \
+    -DWITH_OGG=ON -DWITH_ASM=OFF -DWITH_STACK_PROTECTOR=OFF -DWITH_FORTIFY_SOURCE=OFF -DENABLE_MULTITHREADING=OFF
+cmake_dep libopus https://github.com/xiph/opus.git v1.5.2 libopus.a . \
+    -DOPUS_BUILD_PROGRAMS=OFF -DOPUS_BUILD_TESTING=OFF -DOPUS_STACK_PROTECTOR=OFF -DOPUS_FORTIFY_SOURCE=OFF \
+    -DOPUS_INSTALL_PKG_CONFIG_MODULE=OFF -DOPUS_INSTALL_CMAKE_CONFIG_MODULE=ON
+cmake_dep libsndfile https://github.com/libsndfile/libsndfile.git 1.2.2 libsndfile.a . \
+    -DBUILD_PROGRAMS=OFF -DBUILD_EXAMPLES=OFF -DENABLE_CPACK=OFF -DENABLE_PACKAGE_CONFIG=OFF \
+    -DINSTALL_PKGCONFIG_MODULE=OFF -DINSTALL_MANPAGES=OFF -DENABLE_EXTERNAL_LIBS=ON -DENABLE_MPEG=OFF
+cmake_dep libmpg123 https://github.com/libsdl-org/mpg123.git v1.33.7-SDL libmpg123.a ports/cmake \
+    -DBUILD_LIBOUT123=OFF -DBUILD_PROGRAMS=OFF -DNETWORK=OFF -DNO_ICY=ON -DNO_MESSAGES=ON
+
+# GeneralUser GS (S. Christian Collins; its own licence, which allows use in
+# software projects): the SoundFont MIDI music plays through. The one in
+# UZDoom's tree is not shipped (ps5/tools/stage-title.sh says why).
+soundfont_revision=684543d5e5efaef08d02be50dcda8d552478fa60
+soundfont_url=https://github.com/mrbumpy409/GeneralUser-GS.git
+if [[ ! -f $prefix/share/soundfont/GeneralUser-GS.sf2 || $(cat "$prefix/.soundfont-commit" 2> /dev/null) != "$soundfont_revision" ]]; then
+    echo "==> [deps] GeneralUser GS"
+    rm -rf "$prefix/src/generaluser-gs" "$prefix/share/soundfont"
+    git clone -q "$soundfont_url" "$prefix/src/generaluser-gs" 2> /dev/null
+    git -C "$prefix/src/generaluser-gs" -c advice.detachedHead=false checkout -q "$soundfont_revision"
+    mkdir -p "$prefix/share/soundfont"
+    cp "$prefix/src/generaluser-gs/GeneralUser-GS.sf2" "$prefix/src/generaluser-gs/documentation/LICENSE.txt" \
+        "$prefix/share/soundfont/"
+    echo "$soundfont_revision" > "$prefix/.soundfont-commit"
+fi
+echo "==> [deps] GeneralUser GS: $prefix/share/soundfont/GeneralUser-GS.sf2"

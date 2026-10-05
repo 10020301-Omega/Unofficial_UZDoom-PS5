@@ -18,9 +18,9 @@
 # Not shipped, on purpose:
 #   soundfont/uzdoom.sf2      its own header reads "Copyright 1996 Roland
 #                             Corporation U.S." and the repository states no
-#                             licence for it. Music plays through the OPL
-#                             emulation; a soundfont of the user's own goes in
-#                             soundfonts/.
+#                             licence for it. GeneralUser GS takes its place,
+#                             under the name the engine looks for
+#                             (soundfonts/uzdoom.sf2).
 #   fm_banks/                 instrument banks under a licence each; the OPL
 #                             emulation the port defaults to does not need them
 #   brightmaps.pk3, game_widescreen_gfx.pk3 and game_support.pk3's nonfree
@@ -64,10 +64,16 @@ Put mods here: .pk3 and .wad files, in folders if you like.
 Tick them in the launcher's "Select Mods" screen; the number beside each is
 its place in the load order.
 TEXT
+deps=$(sed -n 's|^VPX_INCLUDE_DIR:[A-Z]*=\(.*\)/include$|\1|p' "$build/CMakeCache.txt")
+[[ -f $deps/share/soundfont/GeneralUser-GS.sf2 ]] || { echo "stage-title.sh: no soundfont in $deps (run build-deps.sh)" >&2; exit 2; }
+cp "$deps/share/soundfont/GeneralUser-GS.sf2" "$app/soundfonts/uzdoom.sf2"
 cat > "$app/soundfonts/README.txt" <<'TEXT'
-A SoundFont (.sf2) placed here can be chosen in the engine's sound options
-for MIDI music. None is included; without one, music plays through the
-engine's OPL (AdLib/Sound Blaster) emulation, as it did under DOS.
+uzdoom.sf2 is GeneralUser GS by S. Christian Collins, under its own licence
+(licenses/generaluser-gs/LICENSE.txt), renamed to the name the engine looks
+for. MIDI music plays through it.
+
+To use another SoundFont, replace uzdoom.sf2 with it (keep the name), or add
+it here and choose it in the engine's sound options.
 TEXT
 
 python3 "$ps5/tools/stage-notices.py" "$app" "$build" "$vulkan"

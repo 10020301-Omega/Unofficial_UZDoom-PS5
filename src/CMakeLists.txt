@@ -1330,6 +1330,9 @@ if( PS5 )
 	# The console's link is PS5_Vulkan's (RADV, the platform layer, its own
 	# start-up code and conversion tool): ps5/tools/link-title.sh does it.
 	set( PS5_VULKAN_DIR "${CMAKE_SOURCE_DIR}/../PS5_Vulkan" CACHE PATH "the PS5_Vulkan checkout (RADV archive, link recipe, packaging)" )
+	# Static libraries the ones above need in turn (libsndfile's codecs)
+	set( PS5_EXTRA_LIBRARIES "" CACHE STRING "PS5: more static libraries to link" )
+	list( APPEND PROJECT_LIBRARIES ${PS5_EXTRA_LIBRARIES} )
 	set( CMAKE_CXX_LINK_EXECUTABLE
 		"${CMAKE_COMMAND} -E env PS5_VULKAN_DIR=${PS5_VULKAN_DIR} PS5_PAYLOAD_SDK=${PS5_PAYLOAD_SDK} bash ${CMAKE_SOURCE_DIR}/ps5/tools/link-title.sh <TARGET> <OBJECTS> --libs <LINK_LIBRARIES>" )
 endif()

@@ -202,6 +202,45 @@ def main():
         source=dict(kind="git", path=str(vpx), remote="https://github.com/webmproject/libvpx", revision=vpx_rev,
                     dirty=bool(git(vpx, "status", "--porcelain", "--untracked-files=no")))))
 
+    # The audio decoders
+    decoders = [
+        ("libogg", "libogg, the Ogg container", "BSD-3-Clause", ["COPYING"], "https://github.com/xiph/ogg",
+         "Copyright (c) 2002 Xiph.org Foundation"),
+        ("libvorbis", "libvorbis, the Vorbis decoder", "BSD-3-Clause", ["COPYING"], "https://github.com/xiph/vorbis",
+         "Copyright (c) 2002-2020 Xiph.org Foundation"),
+        ("libflac", "libFLAC, the FLAC decoder", "BSD-3-Clause", ["COPYING.Xiph"], "https://github.com/xiph/flac",
+         "Copyright (C) 2000-2009 Josh Coalson; Copyright (C) 2011-2025 Xiph.Org Foundation"),
+        ("libopus", "libopus, the Opus decoder", "BSD-3-Clause, with patent grants (licenses/libopus/COPYING)", ["COPYING"],
+         "https://github.com/xiph/opus", "Copyright 2001-2023 Xiph.Org, Skype Limited, Octasic, Jean-Marc Valin and others"),
+        ("libsndfile", "libsndfile, which reads WAV, Ogg Vorbis, Opus and FLAC", "LGPL-2.1-or-later", ["COPYING"],
+         "https://github.com/libsndfile/libsndfile", "Copyright (C) 1999-2023 Erik de Castro Lopo and the libsndfile contributors"),
+        ("libmpg123", "libmpg123, the MP3 decoder", "LGPL-2.1-or-later", ["COPYING"],
+         "https://github.com/libsdl-org/mpg123", "Copyright (c) 1995-2025 the mpg123 project"),
+    ]
+    for ident, title, licence, texts, url, holder in decoders:
+        repo = deps / "src" / ident
+        commit = (deps / f".{ident}-commit").read_text().strip()
+        for text in texts:
+            write_text(out / ident / text, repo, commit, text)
+        parts.append(dict(
+            id=ident, name=title, licence=licence, copyright=[holder], modifications="none",
+            artifacts=["eboot.bin"], texts=f"licenses/{ident}/",
+            source=dict(kind="git", path=str(repo), remote=url, revision=commit,
+                        dirty=bool(git(repo, "status", "--porcelain", "--untracked-files=no")))))
+
+    # The SoundFont
+    font = deps / "src/generaluser-gs"
+    font_rev = (deps / ".soundfont-commit").read_text().strip()
+    write_text(out / "generaluser-gs/LICENSE.txt", font, font_rev, "documentation/LICENSE.txt")
+    parts.append(dict(
+        id="generaluser-gs", name="GeneralUser GS, the SoundFont MIDI music plays through (soundfonts/uzdoom.sf2, renamed)",
+        licence="GeneralUser GS License v2.0: free to use, modify and include in software "
+                "(licenses/generaluser-gs/LICENSE.txt, which also says what its author knows of the samples' origins)",
+        copyright=["Copyright (C) S. Christian Collins"], modifications="renamed; not altered",
+        artifacts=["soundfonts/uzdoom.sf2"], texts="licenses/generaluser-gs/",
+        source=dict(kind="fixed", revision=f"the file as published, at {font_rev}",
+                    url="https://github.com/mrbumpy409/GeneralUser-GS")))
+
     # The payload SDK fork: its platform layer and headers
     sdk = ROOT.parent / "PS5_PayloadSDK"
     sdk_rev = pinned("tools/setup-sdk.sh", "sdk_revision")
