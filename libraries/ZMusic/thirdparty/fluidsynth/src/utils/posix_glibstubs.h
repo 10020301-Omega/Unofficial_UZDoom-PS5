@@ -15,7 +15,6 @@
 
 #if defined(WITH_GLIB_STUBS) && !defined(_WIN32)
 
-#include <alloca.h>
 #include <assert.h>
 #include <pthread.h>
 #include <stdint.h>
@@ -52,7 +51,7 @@ typedef uint64_t guint64;
 #define g_new(s, c) FLUID_ARRAY(s, c)
 #define g_free(p) FLUID_FREE(p)
 #define g_strfreev FLUID_FREE
-#define g_newa(_type, _len) (_type *)alloca(sizeof(_type) * (_len))
+#define g_newa(_type, _len) (_type *)__builtin_alloca(sizeof(_type) * (_len))
 #define g_assert(a) assert(a)
 #define G_LIKELY(expr) (__builtin_expect(!!(expr), 1))
 #define G_UNLIKELY(expr) (__builtin_expect(!!(expr), 0))

@@ -529,8 +529,9 @@ std::vector<dap::Module> PexCache::GetModules()
 
 uint64_t PexCache::AddDisassemblyLines(VMScriptFunction *func, DisassemblyMap &instructions)
 {
-#if defined(_WIN32) || defined(_WIN64)
+#if defined(_WIN32) || defined(_WIN64) || defined(__PROSPERO__)
 	// TODO: add a windows-compatible fmemopen
+	// (the PS5's libc has none either)
 	return 0;
 #else
 	if (!func || IsFunctionAbstract(func) || IsFunctionNative(func))

@@ -422,7 +422,9 @@ set( PLAT_UNIX_SOURCES
 set( PLAT_PS5_SOURCES
 	common/platform/posix/ps5/console/platform.c
 	common/platform/posix/ps5/hardware.cpp
+	common/platform/posix/ps5/ps5_glstubs.cpp
 	common/platform/posix/ps5/ps5_input.cpp
+	common/platform/posix/ps5/ps5_libc.cpp
 	common/platform/posix/ps5/ps5_launcher.cpp
 	common/platform/posix/ps5/ps5_main.cpp
 	common/platform/posix/ps5/ps5_system.cpp
@@ -479,6 +481,13 @@ elseif( PS5 )
 		VERBATIM )
 	set_source_files_properties( ../ps5/launcher/textscreen.cpp PROPERTIES
 		OBJECT_DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/ps5/font_cp437.inc" )
+
+	# The title's id, from its identity: the name of its folder on the console
+	file( READ ${CMAKE_SOURCE_DIR}/ps5/sce_sys/param.json PS5_PARAM_JSON )
+	string( JSON PS5_TITLE_ID GET "${PS5_PARAM_JSON}" titleId )
+	set_property( DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/ps5/sce_sys/param.json )
+	set_source_files_properties( common/platform/posix/ps5/ps5_main.cpp PROPERTIES
+		COMPILE_DEFINITIONS "PS5_TITLE_ID=\"${PS5_TITLE_ID}\"" )
 else()
 	option (SYSTEMINSTALL "Set global progdir based on CMake Install Dir" OFF)
 

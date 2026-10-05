@@ -1,0 +1,301 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 060a740..0eebce9 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -893,6 +893,7 @@ set(HAVE_OTHERIO    0)
+ set(HAVE_WAVE       0)
+ set(HAVE_SDL2       0)
+ set(HAVE_SDL3       0)
++set(HAVE_PS5        0)
+ 
+ if(WIN32 OR HAVE_DLFCN_H)
+     set(IS_LINKED "")
+@@ -1255,6 +1256,14 @@ if(ALSOFT_REQUIRE_SDL2 AND NOT HAVE_SDL2)
+     message(FATAL_ERROR "Failed to enable required SDL2 backend")
+ endif()
+ 
++# PlayStation 5: the console's AudioOut service
++option(ALSOFT_BACKEND_PS5 "Enable PlayStation 5 backend" OFF)
++if(ALSOFT_BACKEND_PS5)
++    set(HAVE_PS5 1)
++    set(ALC_OBJS  ${ALC_OBJS} alc/backends/ps5.cpp alc/backends/ps5.h)
++    set(BACKENDS  "${BACKENDS} PS5,")
++endif()
++
+ # Optionally enable the Wave Writer backend
+ option(ALSOFT_BACKEND_WAVE "Enable Wave Writer backend" ON)
+ if(ALSOFT_BACKEND_WAVE)
+diff --git a/alc/alc.cpp b/alc/alc.cpp
+index b55fce8..58a7fa5 100644
+--- a/alc/alc.cpp
++++ b/alc/alc.cpp
+@@ -164,6 +164,9 @@
+ #if HAVE_WAVE
+ #include "backends/wave.h"
+ #endif
++#if HAVE_PS5
++#include "backends/ps5.h"
++#endif
+ 
+ #if ALSOFT_EAX
+ #include "al/eax/api.h"
+@@ -268,6 +271,9 @@ std::array BackendList{
+ #if HAVE_OTHERIO
+     BackendInfo{"otherio", OtherIOBackendFactory::getFactory},
+ #endif
++#if HAVE_PS5
++    BackendInfo{"ps5", PS5BackendFactory::getFactory},
++#endif
+ 
+     BackendInfo{"null", NullBackendFactory::getFactory},
+ #if HAVE_WAVE
+diff --git a/alc/backends/ps5.cpp b/alc/backends/ps5.cpp
+new file mode 100644
+index 0000000..3854d79
+--- /dev/null
++++ b/alc/backends/ps5.cpp
+@@ -0,0 +1,208 @@
++/**
++ * OpenAL cross platform audio library
++ * PlayStation 5 backend
++ * Copyright (C) 2026 PS5-UZDOOM port contributors
++ *
++ * This library is free software; you can redistribute it and/or
++ *  modify it under the terms of the GNU Library General Public
++ *  License as published by the Free Software Foundation; either
++ *  version 2 of the License, or (at your option) any later version.
++ *
++ * This library is distributed in the hope that it will be useful,
++ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
++ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ *  Library General Public License for more details.
++ *
++ * You should have received a copy of the GNU Library General Public
++ *  License along with this library; if not, write to the
++ *  Free Software Foundation, Inc.,
++ *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
++ * Or go to http://www.gnu.org/copyleft/lgpl.html
++ */
++
++/* One output: the console's main port, 48 kHz, 16-bit stereo, 256 frames a
++ * grain. sceAudioOutOutput blocks while the console plays the grain it was
++ * given, so the mixing thread paces itself on it. The calls and their
++ * arguments are those PS5_VulkanTemplate's platform layer uses (ps5/src/
++ * platform.c, MIT, Copyright (C) 2026 Mihawk); no SDK header declares them.
++ */
++
++#include "config.h"
++
++#include "ps5.h"
++
++#include <array>
++#include <atomic>
++#include <cstdint>
++#include <exception>
++#include <thread>
++
++#include "althrd_setname.h"
++#include "core/device.h"
++#include "core/helpers.h"
++#include "core/logging.h"
++
++extern "C" {
++int sceAudioOutInit(void);
++int sceAudioOutOpen(int32_t user, int32_t type, int32_t index, uint32_t grain, uint32_t rate,
++    uint32_t format);
++int sceAudioOutOutput(int32_t port, const void *samples);
++int sceAudioOutClose(int32_t port);
++int sceKernelUsleep(uint32_t microseconds);
++}
++
++namespace {
++
++using namespace std::string_view_literals;
++
++[[nodiscard]] constexpr auto GetDeviceName() noexcept { return "PlayStation 5 Audio Output"sv; }
++
++constexpr auto GrainFrames = 256u;
++constexpr auto OutputRate = 48000u;
++/* The system user's main port; 1 is 16-bit stereo. */
++constexpr auto SystemUser = int32_t{0xff};
++constexpr auto FormatS16Stereo = 1u;
++constexpr auto AlreadyInitialised = static_cast<int>(0x8026000e);
++
++
++struct PS5Backend final : public BackendBase {
++    explicit PS5Backend(DeviceBase *device) noexcept : BackendBase{device} { }
++    ~PS5Backend() override;
++
++    int mixerProc();
++
++    void open(std::string_view name) override;
++    bool reset() override;
++    void start() override;
++    void stop() override;
++
++    int32_t mPort{-1};
++    std::atomic<bool> mKillNow{true};
++    std::thread mThread;
++};
++
++PS5Backend::~PS5Backend()
++{
++    stop();
++    if(mPort >= 0)
++        sceAudioOutClose(mPort);
++    mPort = -1;
++}
++
++int PS5Backend::mixerProc()
++{
++    althrd_setname(GetMixerThreadName());
++
++    alignas(64) auto grain = std::array<int16_t,GrainFrames*2>{};
++    auto failed = false;
++    while(!mKillNow.load(std::memory_order_acquire)
++        && mDevice->Connected.load(std::memory_order_acquire))
++    {
++        mDevice->renderSamples(grain.data(), GrainFrames, 2u);
++        /* Blocks for one grain: this is what paces the thread. */
++        if(sceAudioOutOutput(mPort, grain.data()) < 0)
++        {
++            if(!failed)
++                ERR("sceAudioOutOutput failed");
++            failed = true;
++            sceKernelUsleep(5000);
++        }
++    }
++    /* Let the grain still queued play out. */
++    sceAudioOutOutput(mPort, nullptr);
++    return 0;
++}
++
++
++void PS5Backend::open(std::string_view name)
++{
++    if(name.empty())
++        name = GetDeviceName();
++    else if(name != GetDeviceName())
++        throw al::backend_exception{al::backend_error::NoDevice, "Device name \"{}\" not found",
++            name};
++
++    if(mPort < 0)
++    {
++        const auto init = sceAudioOutInit();
++        if(init < 0 && init != AlreadyInitialised)
++            throw al::backend_exception{al::backend_error::DeviceError,
++                "sceAudioOutInit failed: {:#010x}", static_cast<unsigned>(init)};
++        mPort = sceAudioOutOpen(SystemUser, 0, 0, GrainFrames, OutputRate, FormatS16Stereo);
++        if(mPort < 0)
++        {
++            const auto error = static_cast<unsigned>(mPort);
++            mPort = -1;
++            throw al::backend_exception{al::backend_error::DeviceError,
++                "sceAudioOutOpen failed: {:#010x}", error};
++        }
++    }
++
++    mDeviceName = name;
++}
++
++bool PS5Backend::reset()
++{
++    /* The port was opened as this and nothing else. */
++    mDevice->FmtChans = DevFmtStereo;
++    mDevice->FmtType = DevFmtShort;
++    mDevice->mAmbiOrder = 0;
++    mDevice->mSampleRate = OutputRate;
++    mDevice->mUpdateSize = GrainFrames;
++    mDevice->mBufferSize = GrainFrames*2;
++    setDefaultWFXChannelOrder();
++    return true;
++}
++
++void PS5Backend::start()
++{
++    try {
++        mKillNow.store(false, std::memory_order_release);
++        mThread = std::thread{&PS5Backend::mixerProc, this};
++    }
++    catch(std::exception& e) {
++        throw al::backend_exception{al::backend_error::DeviceError,
++            "Failed to start mixing thread: {}", e.what()};
++    }
++}
++
++void PS5Backend::stop()
++{
++    if(mKillNow.exchange(true, std::memory_order_acq_rel) || !mThread.joinable())
++        return;
++    mThread.join();
++}
++
++} // namespace
++
++
++bool PS5BackendFactory::init()
++{ return true; }
++
++bool PS5BackendFactory::querySupport(BackendType type)
++{ return (type == BackendType::Playback); }
++
++auto PS5BackendFactory::enumerate(BackendType type) -> std::vector<std::string>
++{
++    switch(type)
++    {
++    case BackendType::Playback:
++        return std::vector{std::string{GetDeviceName()}};
++    case BackendType::Capture:
++        break;
++    }
++    return {};
++}
++
++BackendPtr PS5BackendFactory::createBackend(DeviceBase *device, BackendType type)
++{
++    if(type == BackendType::Playback)
++        return BackendPtr{new PS5Backend{device}};
++    return nullptr;
++}
++
++BackendFactory &PS5BackendFactory::getFactory()
++{
++    static PS5BackendFactory factory{};
++    return factory;
++}
+diff --git a/alc/backends/ps5.h b/alc/backends/ps5.h
+new file mode 100644
+index 0000000..0853e36
+--- /dev/null
++++ b/alc/backends/ps5.h
+@@ -0,0 +1,20 @@
++#ifndef BACKENDS_PS5_H
++#define BACKENDS_PS5_H
++
++#include "base.h"
++
++/* PlayStation 5 output through the console's AudioOut service. */
++struct PS5BackendFactory final : public BackendFactory {
++public:
++    auto init() -> bool final;
++
++    auto querySupport(BackendType type) -> bool final;
++
++    auto enumerate(BackendType type) -> std::vector<std::string> final;
++
++    auto createBackend(DeviceBase *device, BackendType type) -> BackendPtr final;
++
++    static auto getFactory() -> BackendFactory&;
++};
++
++#endif /* BACKENDS_PS5_H */
+diff --git a/config_backends.h.in b/config_backends.h.in
+index 96eb79c..893440c 100644
+--- a/config_backends.h.in
++++ b/config_backends.h.in
+@@ -35,3 +35,5 @@
+ #cmakedefine01 HAVE_SDL3
+ 
+ #cmakedefine01 HAVE_SDL2
++
++#cmakedefine01 HAVE_PS5

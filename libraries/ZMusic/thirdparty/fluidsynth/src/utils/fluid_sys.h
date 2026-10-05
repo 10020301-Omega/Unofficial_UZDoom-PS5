@@ -528,7 +528,7 @@ fluid_ostream_t fluid_socket_get_ostream(fluid_socket_t sock);
     /* GStatBuf has not been introduced yet, manually typedef to what they had at that time:
      * https://github.com/GNOME/glib/blob/e7763678b56e3be073cc55d707a6e92fc2055ee0/glib/gstdio.h#L98-L115
      */
-    #if defined(_WIN32) || HAVE_WINDOWS_H // somehow reliably mock G_OS_WIN32??
+    #if defined(_WIN32) || (HAVE_WINDOWS_H && !defined(_POSIX_GLIBSTUBS_H)) // somehow reliably mock G_OS_WIN32??
         // Any effort from our side to reliably mock GStatBuf on Windows is in vain. E.g. glib-2.16 is broken as it uses struct stat rather than struct _stat32 on Win x86.
         // Disable it (the user has been warned by cmake).
         #undef fluid_stat

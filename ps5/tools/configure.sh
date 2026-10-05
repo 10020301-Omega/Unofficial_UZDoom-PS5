@@ -17,7 +17,12 @@ export PS5_CLANG=${PS5_CLANG:-$(command -v clang || true)}
 # What is off, and why:
 #   HAVE_GLES2, OpenGL     the console has Vulkan only
 #   VULKAN_USE_XLIB        and no window system: the surface is the display itself
-#   NO_OPENAL              sound goes through the port's own output (not yet written)
+#   DYN_OPENAL             OpenAL Soft is linked in (ps5/tools/build-deps.sh builds it with
+#                          the port's output backend); there is no library to load
+#   DYN_SNDFILE, DYN_MPG123  the console refuses to load a library a title brings, so
+#                          ZMusic must not go looking for libsndfile and libmpg123
+#   FORCE_NO_LTO           whole-program optimisation makes every link take minutes and
+#                          crash addresses harder to read; off until the port is proven
 #   BUILD_NONFREE          the packs made from the commercial games' art are not shipped
 #   NO_OPENMP              the SDK has no OpenMP runtime
 #   SEND_ANON_STATS        no statistics leave the console
@@ -30,7 +35,9 @@ cmake -S "$root" -B "$build" -G Ninja \
     -DIMPORT_EXECUTABLES="$host/ImportExecutables.cmake" \
     -DPS5_VULKAN_DIR="$vulkan" \
     -DVPX_INCLUDE_DIR="$deps/include" -DVPX_LIBRARIES="$deps/lib/libvpx.a" \
-    -DHAVE_GLES2=OFF -DNO_OPENAL=ON -DBUILD_NONFREE=OFF -DNO_OPENMP=ON \
+    -DNO_OPENAL=OFF -DDYN_OPENAL=OFF -DDYN_SNDFILE=OFF -DDYN_MPG123=OFF \
+    -DOPENAL_INCLUDE_DIR="$deps/include/AL" -DOPENAL_LIBRARY="$deps/lib/libopenal.a" \
+    -DHAVE_GLES2=OFF -DBUILD_NONFREE=OFF -DNO_OPENMP=ON -DFORCE_NO_LTO=ON \
     -DSEND_ANON_STATS=OFF -DENABLE_IWYU=OFF -DFORCE_INTERNAL_BZIP2=ON \
     -DFT_DISABLE_BZIP2=ON -DFT_DISABLE_BROTLI=ON -DFT_DISABLE_PNG=ON \
     -DVULKAN_USE_XLIB=OFF -DZWIDGET_BUILD_EXAMPLE=OFF

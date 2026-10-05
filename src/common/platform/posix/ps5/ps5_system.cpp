@@ -68,7 +68,7 @@ void PS5_OpenLog()
 {
 	if (LogFile != nullptr)
 		return;
-	const FString path = FString(PS5_USER_ROOT) + "/uzdoom.log";
+	const FString path = FString(PS5_UserRoot()) + "/uzdoom.log";
 	LogFile = fopen(path.GetChars(), "w");
 	if (LogFile != nullptr)
 		chmod(path.GetChars(), 0666);
@@ -138,7 +138,7 @@ void I_ShowFatalError(const char *message)
 		fflush(LogFile);
 	}
 
-	const FString path = FString(PS5_USER_ROOT) + "/last-error.txt";
+	const FString path = FString(PS5_UserRoot()) + "/last-error.txt";
 	if (FILE *file = fopen(path.GetChars(), "w"))
 	{
 		fputs(message, file);

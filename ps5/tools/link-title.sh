@@ -34,7 +34,14 @@ for argument in "$@"; do
     elif [[ $into == objects ]]; then
         objects+=("$argument")
     else
-        libraries+=("$argument")
+        # CMake's list is written for a compiler driver on a desktop. Keep the
+        # archives; the system libraries it names (-lm, -lpthread, -pthread,
+        # rpath options) are the SDK's stubs here, which the link adds itself.
+        case $argument in
+            *.a) libraries+=("$argument") ;;
+            -Wl,* | -l* | -pthread | -L*) ;;
+            *) echo "link-title.sh: unexpected link input: $argument" >&2; exit 2 ;;
+        esac
     fi
 done
 
@@ -73,9 +80,16 @@ radv_link_recipe "$vulkan" "$sdk" "$archive" || exit 2
 # -z nostart-stop-gc: the engine finds its classes, console variables and
 # commands in sections it walks from __start_ to __stop_ symbols; the linker
 # must not discard them as unreferenced.
+# --wrap=exit: exit() ends a title as a crash; calls to it go to the port's
+# __wrap_exit (ps5_main.cpp), which asks the shell to close the title.
+# --no-dynamic-linker: Mesa names every Vulkan entry point through weak
+# references that are meant to read as NULL. Without this, LLD 18 turns the
+# unresolved ones into imports (2,712 of them), and the converter refuses a
+# title that imports what no system module exports. PS5_VulkanTemplate's own
+# link script does not pass it and failed that way here with LLD 18.1.3.
 "$sdk/bin/prospero-lld" "${radv_linker_script[@]}" --eh-frame-hdr "${radv_link_flags[@]}" \
     --version-script "$native/app-symbols.map" --exclude-libs=ALL \
-    -z nostart-stop-gc -e _start -o "$output" \
+    -z nostart-stop-gc --no-dynamic-linker --wrap=exit --error-limit=0 -e _start -o "$output" \
     "$work/obj/app_crt.o" "${objects[@]}" \
     --start-group "${libraries[@]}" --end-group \
     "$work/stubs/libSceAgc.so" "$work/stubs/libSceAgcDriver.so" \

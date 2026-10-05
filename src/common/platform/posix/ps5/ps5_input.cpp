@@ -35,6 +35,7 @@
 #include "keydef.h"
 #include "m_haptics.h"
 #include "m_joy.h"
+#include "printf.h"
 #include "tarray.h"
 #include "zstring.h"
 

@@ -368,7 +368,7 @@ private:
 // The last run's fatal error, shown once.
 std::string TakeLastError()
 {
-	const std::string path = std::string(PS5_USER_ROOT) + "/last-error.txt";
+	const std::string path = std::string(PS5_UserRoot()) + "/last-error.txt";
 	std::ifstream file(path);
 	if (!file)
 		return "";
@@ -383,14 +383,14 @@ std::string TakeLastError()
 
 bool PS5_RunLauncher(std::vector<std::string> &arguments)
 {
-	dosui::Launcher launcher(PS5_USER_ROOT, PS5_APP_ROOT);
+	dosui::Launcher launcher(PS5_UserRoot(), PS5_APP_ROOT, PS5_UserRootShown());
 	launcher.Load();
 	launcher.Rescan();
 	const std::string lastError = TakeLastError();
 	if (!lastError.empty())
 	{
 		launcher.ShowMessage("The last run ended with an error",
-			lastError + "\nThe full log is in " PS5_USER_ROOT "/uzdoom.log");
+			lastError + "\nThe full log is in " + PS5_UserRootShown() + "/uzdoom.log");
 	}
 
 	dosui::Launcher::Result result = dosui::Launcher::Result::Running;

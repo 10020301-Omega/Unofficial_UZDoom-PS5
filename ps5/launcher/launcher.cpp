@@ -338,8 +338,8 @@ std::string SizeText(uint64_t bytes)
 
 // ----------------------------------------------------------------- Launcher
 
-Launcher::Launcher(const std::string &userRoot, const std::string &appRoot)
-	: userRoot(userRoot), appRoot(appRoot)
+Launcher::Launcher(const std::string &userRoot, const std::string &appRoot, const std::string &shownRoot)
+	: userRoot(userRoot), appRoot(appRoot), shownRoot(shownRoot.empty() ? userRoot : shownRoot)
 {
 }
 
@@ -354,11 +354,15 @@ void Launcher::Rescan()
 	games.clear();
 	Scan(userRoot + "/iwads", "", 1, IsGameFile, games);
 	SortFiles(games);
-	// Games shipped in the title's folder come after the user's own.
-	std::vector<FileEntry> shipped;
-	Scan(appRoot + "/iwads", "", 0, IsGameFile, shipped);
-	SortFiles(shipped);
-	games.insert(games.end(), shipped.begin(), shipped.end());
+	// Games shipped in the title's folder come after the user's own (when the
+	// user's folder is the title's folder, they are the same files).
+	if (appRoot != userRoot)
+	{
+		std::vector<FileEntry> shipped;
+		Scan(appRoot + "/iwads", "", 0, IsGameFile, shipped);
+		SortFiles(shipped);
+		games.insert(games.end(), shipped.begin(), shipped.end());
+	}
 
 	mods.clear();
 	Scan(userRoot + "/mods", "", 3, IsModFile, mods);
@@ -483,7 +487,7 @@ void Launcher::UpdateMain(const Input &input)
 		{
 			mainCursor = cursor;
 			ShowMessage("No game", "There is no game to start.\n\nCopy a game file such as DOOM2.WAD into\n" +
-				userRoot + "/iwads\nover FTP, then choose Rescan Folders.");
+				shownRoot + "/iwads\nover FTP, then choose Rescan Folders.");
 		}
 		else
 		{
@@ -690,7 +694,7 @@ void Launcher::DrawMain(TextScreen &out) const
 	out.Print(infoX + 2, infoY + 4, "Files:", InfoLabelAttr);
 	if (selection.game.empty())
 	{
-		out.Print(valueX, infoY + 1, "none found - copy one to " + userRoot + "/iwads", InfoAttr, valueWidth);
+		out.Print(valueX, infoY + 1, "none found - copy one to " + shownRoot + "/iwads", InfoAttr, valueWidth);
 	}
 	else
 	{
@@ -706,7 +710,7 @@ void Launcher::DrawMain(TextScreen &out) const
 	}
 	out.Print(valueX, infoY + 2, modText, InfoAttr, valueWidth);
 	out.Print(valueX, infoY + 3, StartSummary(selection), InfoAttr, valueWidth);
-	out.Print(valueX, infoY + 4, "FTP to " + userRoot + "/iwads and " + userRoot + "/mods", InfoAttr, valueWidth);
+	out.Print(valueX, infoY + 4, "FTP to " + shownRoot + "/iwads  and  .../mods", InfoAttr, valueWidth);
 }
 
 void Launcher::DrawGames(TextScreen &out) const
@@ -718,7 +722,7 @@ void Launcher::DrawGames(TextScreen &out) const
 	{
 		out.PrintCentered(ListX + 1, ListY + 7, ListWidth - 2, "No game files found.", BoxAttr);
 		out.PrintCentered(ListX + 1, ListY + 9, ListWidth - 2, "Copy DOOM.WAD, DOOM2.WAD or another game file to", BoxAttr);
-		out.PrintCentered(ListX + 1, ListY + 10, ListWidth - 2, userRoot + "/iwads", BoxValueAttr);
+		out.PrintCentered(ListX + 1, ListY + 10, ListWidth - 2, shownRoot + "/iwads", BoxValueAttr);
 		out.PrintCentered(ListX + 1, ListY + 11, ListWidth - 2, "over FTP, then choose Rescan Folders.", BoxAttr);
 		return;
 	}
@@ -752,7 +756,7 @@ void Launcher::DrawMods(TextScreen &out) const
 	{
 		out.PrintCentered(ListX + 1, ListY + 7, ListWidth - 2, "No mods found.", BoxAttr);
 		out.PrintCentered(ListX + 1, ListY + 9, ListWidth - 2, "Copy .pk3 and .wad files to", BoxAttr);
-		out.PrintCentered(ListX + 1, ListY + 10, ListWidth - 2, userRoot + "/mods", BoxValueAttr);
+		out.PrintCentered(ListX + 1, ListY + 10, ListWidth - 2, shownRoot + "/mods", BoxValueAttr);
 		out.PrintCentered(ListX + 1, ListY + 11, ListWidth - 2, "over FTP, then choose Rescan Folders.", BoxAttr);
 		return;
 	}

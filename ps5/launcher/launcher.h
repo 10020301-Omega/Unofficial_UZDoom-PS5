@@ -71,7 +71,9 @@ public:
 
 	// userRoot: the user's folder (iwads/, mods/, saves/, config/ below it).
 	// appRoot: the title's folder; games shipped with the title are in its iwads/.
-	Launcher(const std::string &userRoot, const std::string &appRoot);
+	// shownRoot: the user's folder as the person copying files names it (the
+	// title and an FTP client can see the same folder under different paths).
+	Launcher(const std::string &userRoot, const std::string &appRoot, const std::string &shownRoot = "");
 
 	// Make the user's folders if they are missing and read them again.
 	void Rescan();
@@ -114,7 +116,7 @@ private:
 	std::string StartSummary(const Selection &sel) const;
 	std::string PresetName(const Selection &sel) const;
 
-	std::string userRoot, appRoot;
+	std::string userRoot, appRoot, shownRoot;
 	std::vector<FileEntry> games, mods;
 	Selection selection;
 	Preset presets[PresetCount];

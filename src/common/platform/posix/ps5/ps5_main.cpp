@@ -102,24 +102,104 @@ static void OpenToEveryone(const std::string &folder, int depth)
 	closedir(dir);
 }
 
+//==========================================================================
+//
+// Where the user's folders are. A title sees only its own folder unless the
+// console's setup opens /data to it, so the shared folder is used only when
+// a file can really be written there and read back.
+//
+//==========================================================================
+
+static std::string UserRoot = PS5_APP_ROOT;
+static std::string UserRootShown = "/data/homebrew/" PS5_TITLE_ID;
+
+static bool CanUse(const std::string &folder)
+{
+	mkdir(folder.c_str(), 0777);
+	const std::string probe = folder + "/.probe";
+	FILE *file = fopen(probe.c_str(), "w");
+	if (file == nullptr)
+		return false;
+	const bool written = fputs("uzdoom", file) >= 0;
+	const bool closed = fclose(file) == 0;
+	char text[8] = {};
+	file = fopen(probe.c_str(), "r");
+	const bool read = file != nullptr && fgets(text, sizeof(text), file) != nullptr && strcmp(text, "uzdoom") == 0;
+	if (file != nullptr)
+		fclose(file);
+	remove(probe.c_str());
+	return written && closed && read;
+}
+
+void PS5_ChooseUserRoot()
+{
+	if (CanUse(PS5_SHARED_ROOT))
+	{
+		UserRoot = UserRootShown = PS5_SHARED_ROOT;
+	}
+	say("user folder: %s (over FTP: %s)", UserRoot.c_str(), UserRootShown.c_str());
+}
+
+const char *PS5_UserRoot()
+{
+	return UserRoot.c_str();
+}
+
+const char *PS5_UserRootShown()
+{
+	return UserRootShown.c_str();
+}
+
 static void SetUpFolders()
 {
 	umask(0);
-	static const char *const folders[] = { "", "/iwads", "/mods", "/saves", "/config", "/cache", "/data" };
+	PS5_ChooseUserRoot();
+	static const char *const folders[] = { "/iwads", "/mods", "/saves", "/config", "/cache", "/data", "/screenshots" };
 	for (const char *folder : folders)
 	{
-		const std::string path = std::string(PS5_USER_ROOT) + folder;
+		const std::string path = UserRoot + folder;
 		mkdir(path.c_str(), 0777);
+		// Whatever an older build or an FTP client left
+		OpenToEveryone(path, 5);
 	}
-	OpenToEveryone(PS5_USER_ROOT, 6);
 
 	// The engine finds its config, cache and data folders through these
 	// (posix/unix/i_specialpaths.cpp); a title has no environment of its own.
-	setenv("HOME", PS5_USER_ROOT, 1);
-	setenv("XDG_CONFIG_HOME", PS5_USER_ROOT "/config", 1);
-	setenv("XDG_CACHE_HOME", PS5_USER_ROOT "/cache", 1);
-	setenv("XDG_DATA_HOME", PS5_USER_ROOT "/data", 1);
-	setenv("XDG_PICTURES_DIR", PS5_USER_ROOT "/screenshots", 1);
+	setenv("HOME", UserRoot.c_str(), 1);
+	setenv("XDG_CONFIG_HOME", (UserRoot + "/config").c_str(), 1);
+	setenv("XDG_CACHE_HOME", (UserRoot + "/cache").c_str(), 1);
+	setenv("XDG_DATA_HOME", (UserRoot + "/data").c_str(), 1);
+	setenv("XDG_PICTURES_DIR", (UserRoot + "/screenshots").c_str(), 1);
+}
+
+// The folders the port makes, open to the FTP server again after a run
+static void OpenUserFolders()
+{
+	static const char *const folders[] = { "/saves", "/config", "/cache", "/data", "/screenshots" };
+	for (const char *folder : folders)
+		OpenToEveryone(UserRoot + folder, 5);
+	chmod((UserRoot + "/uzdoom.log").c_str(), 0666);
+}
+
+//==========================================================================
+//
+// exit() kills a title in a way the console reports as a crash; the only
+// correct ending is to ask the shell to close it, which the start-up code
+// does when main returns. The engine itself always returns, but a library
+// may call exit(): the link sends those calls here (--wrap=exit in
+// ps5/tools/link-title.sh).
+//
+//==========================================================================
+
+extern "C" void catchReturnFromMain(int status);
+
+extern "C" [[noreturn]] void __wrap_exit(int status)
+{
+	fprintf(stderr, "exit(%d) called: closing through the shell\n", status);
+	OpenUserFolders();
+	catchReturnFromMain(status);
+	for (;;)
+		sleep(1);
 }
 
 int main(int, char **)
@@ -157,7 +237,7 @@ int main(int, char **)
 
 	const int result = GameMain();
 
-	OpenToEveryone(PS5_USER_ROOT, 6);
+	OpenUserFolders();
 	PS5_ReleaseSurface();
 	// Returning is how a title ends: the start-up code asks the shell to
 	// close it. Calling exit() here would be reported as a crash.

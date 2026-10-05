@@ -217,6 +217,20 @@ int main(int argc, char **argv)
 		Check(Press(launcher, "o") == Launcher::Result::Launch, "Options starts the game from the main menu");
 	}
 
+	// The user's folder inside the title's folder: the paths shown are the
+	// FTP client's, and the games are not listed twice.
+	{
+		Launcher launcher(user, user, "/data/homebrew/PPSA99666");
+		launcher.Rescan();
+		Check(launcher.Games().size() == 3, "one folder for both roles lists each game once");
+		TextScreen screen;
+		launcher.Draw(screen);
+		const std::string text = screen.Dump();
+		Check(text.find("FTP to /data/homebrew/PPSA99666/iwads") != std::string::npos &&
+			text.find(user) == std::string::npos, "the screen names the folder as FTP sees it");
+		Snapshot(launcher, "13-title-folder");
+	}
+
 	printf("%s\n", failures ? "FAILED" : "all passed");
 	return failures ? 1 : 0;
 }

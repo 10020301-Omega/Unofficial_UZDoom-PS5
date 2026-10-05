@@ -21,6 +21,15 @@
 
 class FString;
 
+// Some systems' <sys/types.h> (the PS5's, older glibc) define major() and
+// minor() as macros for device numbers, which collide with the members below.
+#ifdef major
+#undef major
+#endif
+#ifdef minor
+#undef minor
+#endif
+
 struct VersionInfo
 {
 	uint16_t major;
