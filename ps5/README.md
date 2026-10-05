@@ -11,7 +11,7 @@ Not made, endorsed or supported by the UZDoom team, id Software or Sony
 Interactive Entertainment. No game data is included.
 
 **Status: runs on a console.** It starts, the launcher works, and DOOM and
-mods (Brutal Doom among them) play with picture, pad and music. See "What is
+mods (Brutal Doom among them) play with picture, pad and sound. See "What is
 proven" at the end.
 
 Parts of the port were written with an AI system; see "AI disclosure" in the
@@ -93,14 +93,12 @@ Seen working on one console:
 - it starts, and returns to the home screen when the game is quit;
 - the launcher, the display (3840 x 2160 at 59.94 Hz), the pad;
 - DOOM and mods load and play; `/data/uzdoom/` is used for the user's files;
-- music (FluidSynth with the shipped SoundFont).
+- sound effects and music (FluidSynth with the shipped SoundFont).
 
 Proven on a PC:
 - the launcher's logic and drawing (`ps5/launcher/test_launcher.cpp`).
 
 Not proven:
-- sound effects in OGG, FLAC, Opus and MP3 (the decoders are linked in, but
-  nobody has confirmed hearing them on the console yet);
 - anything on a second console or another firmware;
 - Heretic, Hexen, Strife and the other supported games (only DOOM was played);
 - performance under heavy mods.

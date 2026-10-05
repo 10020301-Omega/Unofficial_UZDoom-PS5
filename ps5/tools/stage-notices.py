@@ -159,7 +159,7 @@ which. If you pass this title on, pass the whole folder on, _source/
 included.
 
 The port's source is also published at
-https://github.com/10020301-Omega/Unnofficial_UZDoom-PS5
+https://github.com/10020301-Omega/Unofficial_UZDoom-PS5
 but _source/ is the source that goes with this build.
 
 AI: parts of this port were written with the help of an AI system; see
