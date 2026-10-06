@@ -18,6 +18,7 @@
 
 #include <cerrno>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 
 #include <fcntl.h>
@@ -34,7 +35,7 @@
 #include "printf.h"
 
 #include "ps5_keymap.h"
-#include "ps5_paths.h"
+#include "ps5_keyboard.h"
 
 extern "C"
 {
@@ -72,6 +73,11 @@ struct ImeKeyboardParam
 int sceImeKeyboardOpen(int32_t user_id, const ImeKeyboardParam *param);
 int sceImeKeyboardClose(int32_t user_id);
 int sceImeUpdate(ImeEventHandler handler);
+
+int sceMouseInit(void);
+int sceMouseOpen(int32_t user_id, int32_t type, int32_t index, const void *param);
+int sceMouseRead(int32_t handle, void *data, int32_t count);
+int sceMouseClose(int32_t handle);
 }
 
 struct ImeEvent
@@ -113,6 +119,8 @@ template<class F> static uintptr_t Imported(F *function)
 extern bool GUICapture;
 
 CVAR(Bool, use_keyboard, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+// Its own switch: the engine's use_mouse was saved as "off" by earlier builds.
+CVAR(Bool, use_keyboard_mouse, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 
 namespace
 {
@@ -144,6 +152,9 @@ int ReadErrors;
 bool UseHistory;         // ReadState refused: take the newest record from Read
 uint16_t RepeatKey;
 uint64_t RepeatAt;
+
+bool LauncherMode;
+bool LauncherPressed[ps5key::HID_COUNT];
 
 bool IsDown(uint16_t a, uint16_t b) { return Down[a] || Down[b]; }
 
@@ -188,6 +199,11 @@ void KeyChanged(uint16_t hid, bool down)
 	if (hid >= HID_COUNT || Down[hid] == down) return;
 	Down[hid] = down;
 	if (hid == HID_CAPSLOCK && down) CapsLock = !CapsLock;
+	if (LauncherMode)
+	{
+		if (down) LauncherPressed[hid] = true;
+		return;
+	}
 
 	if (GUICapture)
 	{
@@ -345,116 +361,145 @@ bool OpenImeRoute(int32_t user)
 
 //==========================================================================
 //
-// The helper payload (ps5/kbd-helper): it runs outside the title, where the
-// keyboard library can be had, and writes the keyboard's states into a file
-// in the user's folder, which this reads. A file, because the console
-// refuses a title a loopback socket (bind answers EACCES).
+// The mouse, through libSceMouse: the same story as the keyboard. Its module
+// is asked for by name, its imports appear a moment later, and until then
+// nothing of it is called.
 //
 //==========================================================================
 
 namespace
 {
 
-constexpr int HelperRing = 64;
-constexpr uint64_t HelperTimeout = 2000; // ms without a heartbeat: it is gone
-
-struct HelperState
+struct MouseData
 {
-	char magic[4]; // "UZK1"
-	uint8_t connected, modifiers, count, zero;
-	uint16_t keys[16];
+	uint64_t timestamp;
+	uint8_t connected;
+	uint8_t pad[3];
+	uint32_t buttons;  // bit 0 primary, 1 secondary, 2 middle, 3 and 4 the side buttons
+	int32_t x, y;      // movement since the last record
+	int32_t wheel, tilt;
+	uint8_t reserved[8];
 };
-static_assert(sizeof(HelperState) == 40, "the helper writes 40 bytes a state");
+static_assert(sizeof(MouseData) == 40, "the library writes 40 bytes a record");
 
-struct HelperFile
+enum class MouseStage { Unasked, Loading, Open, Failed };
+MouseStage Mouse = MouseStage::Unasked;
+int MouseHandle = -1;
+uint32_t MouseButtons;
+uint64_t MouseRetryAt;
+int MouseRetries, MouseReadErrors;
+bool MouseSeen;
+
+bool MouseBound()
 {
-	char magic[4]; // "UZKF"
-	uint32_t version;
-	uint64_t count; // states written so far; state n is in slot n % 64
-	uint64_t beat;  // changes while the helper lives
-	HelperState ring[HelperRing];
-};
-static_assert(offsetof(HelperFile, ring) == 24, "the file's header is 24 bytes");
+	return Imported(&sceMouseInit) != 0 && Imported(&sceMouseOpen) != 0 &&
+		Imported(&sceMouseRead) != 0 && Imported(&sceMouseClose) != 0;
+}
 
-int HelperFd = -1;
-bool HelperAlive, HelperEverSeen;
-uint64_t HelperBeat, HelperBeatAt, HelperCount, HelperRetryAt;
-
-// True while the helper is the one to believe.
-bool PollHelper()
+void MouseButton(int index, bool down)
 {
-	const uint64_t now = I_msTime();
-	if (HelperFd < 0)
-	{
-		if (now < HelperRetryAt) return false;
-		HelperRetryAt = now + 1000;
-		const std::string path = std::string(PS5_UserRoot()) + "/kbd-state.bin";
-		HelperFd = open(path.c_str(), O_RDONLY);
-		if (HelperFd < 0) return false;
-		HelperBeat = 0;
-		HelperBeatAt = 0;
-	}
+	if (GUICapture || LauncherMode) return;
+	event_t event = {};
+	event.type = down ? EV_KeyDown : EV_KeyUp;
+	event.data1 = KEY_MOUSE1 + index;
+	D_PostEvent(&event);
+}
 
-	HelperFile file;
-	const ssize_t size = pread(HelperFd, &file, sizeof(file), 0);
-	if (size != (ssize_t)sizeof(file) || memcmp(file.magic, "UZKF", 4) != 0 || file.version != 1)
+void MouseWheel(int notches)
+{
+	if (LauncherMode) return;
+	for (int i = 0; i < abs(notches) && i < 8; i++)
 	{
-		// Not there yet, or being made again by a helper just started.
-		if (size < 0 || (HelperAlive && now - HelperBeatAt > HelperTimeout))
+		event_t event = {};
+		if (GUICapture)
 		{
-			close(HelperFd);
-			HelperFd = -1;
-		}
-	}
-	else if (file.beat != HelperBeat)
-	{
-		const bool first = HelperBeatAt == 0;
-		HelperBeat = file.beat;
-		HelperBeatAt = now;
-		if (first)
-		{
-			// The file may be left from before the console was restarted:
-			// believe it only once its heartbeat has been seen to move.
-			HelperCount = file.count;
+			event.type = EV_GUI_Event;
+			event.subtype = notches > 0 ? EV_GUI_WheelUp : EV_GUI_WheelDown;
+			D_PostEvent(&event);
 		}
 		else
 		{
-			if (!HelperAlive)
-			{
-				Printf("Keyboard: the helper payload is running.\n");
-				HelperAlive = true;
-				HelperEverSeen = true;
-				// Start from the newest state only.
-				HelperCount = file.count > 0 ? file.count - 1 : 0;
-			}
-			if (file.count < HelperCount) HelperCount = 0; // a new helper began again
-			if (file.count - HelperCount > HelperRing) HelperCount = file.count - HelperRing;
-			for (; HelperCount < file.count; HelperCount++)
-			{
-				const HelperState &state = file.ring[HelperCount % HelperRing];
-				if (memcmp(state.magic, "UZK1", 4) != 0 || !use_keyboard) continue;
-				KeyboardData data;
-				memset(&data, 0, sizeof(data));
-				data.connected = state.connected;
-				data.modifiers = state.modifiers;
-				data.length = state.count > 16 ? 16 : state.count;
-				memcpy(data.keyCode, state.keys, sizeof(data.keyCode));
-				if (data.connected) Apply(data); else ReleaseAll();
-			}
+			event.type = EV_KeyDown;
+			event.data1 = notches > 0 ? KEY_MWHEELUP : KEY_MWHEELDOWN;
+			D_PostEvent(&event);
+			event.type = EV_KeyUp;
+			D_PostEvent(&event);
 		}
 	}
+}
 
-	if (HelperAlive && now - HelperBeatAt > HelperTimeout)
+void PollMouse(int32_t user)
+{
+	const uint64_t now = I_msTime();
+	if (Mouse == MouseStage::Failed) return;
+	if (Mouse == MouseStage::Unasked)
 	{
-		Printf("Keyboard: the helper payload went quiet.\n");
-		HelperAlive = false;
-		HelperBeatAt = 0;
-		ReleaseAll();
-		// It may come back with a new file under the same name.
-		close(HelperFd);
-		HelperFd = -1;
+		if (Imported(&sceKernelLoadStartModule) == 0) { Mouse = MouseStage::Failed; return; }
+		int load = 0;
+		if (!MouseBound()) load = sceKernelLoadStartModule("libSceMouse.sprx", 0, nullptr, 0, nullptr, nullptr);
+		Printf("Mouse: libSceMouse by name 0x%08x -> %s\n", (unsigned)load, MouseBound() ? "bound" : "not bound yet");
+		Mouse = MouseStage::Loading;
 	}
-	return HelperAlive;
+	if (Mouse == MouseStage::Loading)
+	{
+		if (now < MouseRetryAt) return;
+		MouseRetryAt = now + 500;
+		if (!MouseBound())
+		{
+			if (++MouseRetries >= 120)
+			{
+				Printf("Mouse: the console did not provide its mouse library.\n");
+				Mouse = MouseStage::Failed;
+			}
+			return;
+		}
+		const int init = sceMouseInit();
+		int open = sceMouseOpen(user, 0, 0, nullptr);
+		int tried = user;
+		if (open < 0)
+		{
+			tried = 0xFF;
+			open = sceMouseOpen(tried, 0, 0, nullptr);
+		}
+		Printf("Mouse: init 0x%08x, open(user %d) 0x%08x\n", (unsigned)init, tried, (unsigned)open);
+		if (open < 0) { Mouse = MouseStage::Failed; return; }
+		MouseHandle = open;
+		Mouse = MouseStage::Open;
+	}
+
+	MouseData records[8];
+	memset(records, 0, sizeof(records));
+	const int count = sceMouseRead(MouseHandle, records, 8);
+	if (count < 0)
+	{
+		if (++MouseReadErrors == 1) Printf("Mouse: reading failed, 0x%08x\n", (unsigned)count);
+		if (MouseReadErrors > 600) Mouse = MouseStage::Failed;
+		return;
+	}
+	int dx = 0, dy = 0, wheel = 0;
+	for (int i = 0; i < count && i < 8; i++)
+	{
+		const MouseData &data = records[i];
+		if (!data.connected) continue;
+		if (!MouseSeen)
+		{
+			Printf("Mouse: connected (first record: buttons 0x%x, move %d %d, wheel %d).\n",
+				(unsigned)data.buttons, (int)data.x, (int)data.y, (int)data.wheel);
+			MouseSeen = true;
+		}
+		dx += data.x;
+		dy += data.y;
+		wheel += data.wheel;
+		const uint32_t changed = (data.buttons ^ MouseButtons) & 0x1F;
+		for (int bit = 0; bit < 5; bit++)
+		{
+			if (changed & (1u << bit)) MouseButton(bit, (data.buttons >> bit) & 1);
+		}
+		MouseButtons = data.buttons & 0x1F;
+	}
+	if (!use_keyboard_mouse) return;
+	if ((dx != 0 || dy != 0) && !GUICapture && !LauncherMode) PostMouseMove(dx, dy);
+	if (wheel != 0) MouseWheel(wheel);
 }
 
 } // namespace
@@ -475,7 +520,6 @@ static bool TryRoutes()
 
 void PS5_KeyboardOpen()
 {
-	Printf("Keyboard: watching for the helper payload's file, %s/kbd-state.bin\n", PS5_UserRoot());
 	if (Active != Route::None) return;
 	if (Imported(&sceSysmoduleLoadModuleInternal) == 0 || Imported(&sceSysmoduleLoadModule) == 0 ||
 		Imported(&sceKernelLoadStartModule) == 0 || Imported(&sceUserServiceGetInitialUser) == 0)
@@ -547,12 +591,12 @@ void PS5_KeyboardOpen()
 
 void PS5_KeyboardClose()
 {
+	if (Mouse == MouseStage::Open) sceMouseClose(MouseHandle);
+	Mouse = MouseStage::Failed;
 	if (Active == Route::Keyboard && Handle >= 0) sceKeyboardClose(Handle);
 	if (Active == Route::Ime) sceImeKeyboardClose(ImeUser);
 	Handle = -1;
 	Active = Route::None;
-	if (HelperFd >= 0) close(HelperFd);
-	HelperFd = -1;
 }
 
 static void Repeat()
@@ -571,12 +615,7 @@ static void Repeat()
 
 void PS5_KeyboardPoll()
 {
-	if (PollHelper())
-	{
-		if (!use_keyboard) ReleaseAll();
-		Repeat();
-		return;
-	}
+	if (OpenUser != -1) PollMouse(OpenUser);
 	if (Active == Route::None)
 	{
 		// Look again twice a second for the first minute.
@@ -655,4 +694,41 @@ void PS5_KeyboardPoll()
 
 repeat:
 	Repeat();
+}
+
+//==========================================================================
+//
+// The launcher's view of the keyboard
+//
+//==========================================================================
+
+void PS5_KeyboardLauncherMode(bool on)
+{
+	LauncherMode = on;
+	// Whatever is held now is not carried across: a key let go later that was
+	// never seen going down is ignored.
+	memset(Down, 0, sizeof(Down));
+	memset(LauncherPressed, 0, sizeof(LauncherPressed));
+	RepeatKey = 0;
+}
+
+PS5KeyboardNav PS5_KeyboardLauncherRead()
+{
+	using namespace ps5key;
+	PS5_KeyboardPoll();
+	auto pressed = [](uint16_t hid) { return LauncherPressed[hid]; };
+	PS5KeyboardNav nav = {};
+	nav.up = Down[0x52] || Down[0x1A];      // Up, W
+	nav.down = Down[0x51] || Down[0x16];    // Down, S
+	nav.left = Down[0x50] || Down[0x04];    // Left, A
+	nav.right = Down[0x4F] || Down[0x07];   // Right, D
+	nav.accept = pressed(HID_ENTER) || pressed(HID_KP_ENTER) || pressed(HID_SPACE);
+	nav.back = pressed(HID_ESCAPE) || pressed(HID_BACKSPACE);
+	nav.square = pressed(HID_F1 + 1) || pressed(HID_TAB);   // F2, Tab
+	nav.triangle = pressed(HID_F1 + 2) || pressed(0x4C);    // F3, Delete
+	nav.pageUp = pressed(0x4B);
+	nav.pageDown = pressed(0x4E);
+	nav.start = pressed(HID_F1 + 4) || pressed(HID_F1 + 9); // F5, F10
+	memset(LauncherPressed, 0, sizeof(LauncherPressed));
+	return nav;
 }

@@ -45,19 +45,18 @@ L1/R1 to page, Options to start the game.
 In the game the pad uses UZDoom's standard gamepad bindings, which can be
 changed under Options.
 
-A USB keyboard works with a helper (experimental): the console does not let
-a game like this read a keyboard itself, so `payloads/uzdoom-kbd.elf` in the
-title folder does it and passes the keys on. Send it to the payload loader
-once after each boot. Then the usual PC keys work, the console opens on
-`` ` ``, and menus and the console take typing. US layout. There is no mouse,
-and the launcher takes the pad only.
+A USB keyboard plugged into the console works too, alongside the pad: the
+usual PC keys, the console on `` ` ``, and typing in menus and the console
+(US layout). In the launcher: arrows or W A S D to move, Enter or Space to
+choose, Esc to go back, Page Up/Down to page, F5 to start. A USB mouse is read
+for looking around, its buttons and its wheel (experimental).
 
 ![Choosing mods](ps5/screens/mods.png)
 
 ## Limits
 
 Single player only for now. Quitting the game closes the title. The script JIT
-is off. No mouse. The full list is in [ps5/README.md](ps5/README.md).
+is off. The full list is in [ps5/README.md](ps5/README.md).
 
 ## Building
 

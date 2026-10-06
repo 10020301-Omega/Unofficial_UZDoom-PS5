@@ -10,7 +10,6 @@
 #     uzdoom.pk3 ...          the engine's own data
 #     LEGAL.txt, licenses/    what it is licensed under, part by part
 #     AI-DISCLOSURE.txt       which parts were written with an AI system
-#     payloads/uzdoom-kbd.elf the keyboard helper (ps5/kbd-helper), a payload
 #     iwads/ mods/            empty: where games and mods go when the title
 #                             cannot reach /data (see ps5_paths.h)
 #
@@ -78,25 +77,7 @@ To use another SoundFont, replace uzdoom.sf2 with it (keep the name), or add
 it here and choose it in the engine's sound options.
 TEXT
 
-# The keyboard helper: a payload, not part of the title, shipped beside it.
-sdk=${PS5_PAYLOAD_SDK:-$(sed -n 's|^CMAKE_AR:[A-Z]*=\(.*\)/toolchain/\.\./bin/prospero-ar$|\1|p' "$build/CMakeCache.txt")}
-[[ -d $sdk/toolchain ]] || { echo "stage-title.sh: cannot find the payload SDK (set PS5_PAYLOAD_SDK)" >&2; exit 2; }
-mkdir -p "$build/kbd-helper" "$app/payloads"
-cp "$ps5/kbd-helper/main.c" "$ps5/kbd-helper/Makefile" "$build/kbd-helper/"
-make -s -C "$build/kbd-helper" PS5_PAYLOAD_SDK="$sdk" > /dev/null
-cp "$build/kbd-helper/uzdoom-kbd.elf" "$app/payloads/uzdoom-kbd.elf"
-cat > "$app/payloads/README.txt" <<'TEXT'
-uzdoom-kbd.elf: the keyboard helper. The console does not let a game like
-this one read a USB keyboard itself, so this small payload does it and
-passes the keys on to the game.
-
-Send it to the console's payload loader (the same way as any other .elf
-payload, port 9021) once after each boot. It can be sent before or after
-the game is started. A notification says when it is running.
-
-It writes what it finds to /data/uzdoom/kbd-helper.log. Its source is
-ps5/kbd-helper/ in the UZDoom archive under _source/.
-TEXT
+rm -rf "$app/payloads"
 
 python3 "$ps5/tools/stage-notices.py" "$app" "$build" "$vulkan"
 printf '==> %s: %s (eboot.bin %s bytes)\n' "$title_id" "$app" "$(stat -c %s "$app/eboot.bin")"

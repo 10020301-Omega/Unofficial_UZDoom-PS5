@@ -33,6 +33,7 @@
 
 #include "launcher.h"
 #include "ps5_display.h"
+#include "ps5_keyboard.h"
 #include "ps5_launcher.h"
 #include "ps5_paths.h"
 #include "textscreen.h"
@@ -327,6 +328,12 @@ public:
 
 		// The left stick moves as the D-pad does
 		uint32_t directions = pad.held & (PAD_UP | PAD_DOWN | PAD_LEFT | PAD_RIGHT);
+		// A keyboard's arrows (or W A S D) too
+		const PS5KeyboardNav keys = PS5_KeyboardLauncherRead();
+		if (keys.up) directions |= PAD_UP;
+		if (keys.down) directions |= PAD_DOWN;
+		if (keys.left) directions |= PAD_LEFT;
+		if (keys.right) directions |= PAD_RIGHT;
 		if (pad.left_y < -0.6f) directions |= PAD_UP;
 		if (pad.left_y > 0.6f) directions |= PAD_DOWN;
 		if (pad.left_x < -0.6f) directions |= PAD_LEFT;
@@ -350,13 +357,13 @@ public:
 		input.down = moved & PAD_DOWN;
 		input.left = moved & PAD_LEFT;
 		input.right = moved & PAD_RIGHT;
-		input.accept = pad.pressed & PAD_CROSS;
-		input.back = pad.pressed & PAD_CIRCLE;
-		input.square = pad.pressed & PAD_SQUARE;
-		input.triangle = pad.pressed & PAD_TRIANGLE;
-		input.pageUp = pad.pressed & PAD_L1;
-		input.pageDown = pad.pressed & PAD_R1;
-		input.start = pad.pressed & PAD_OPTIONS;
+		input.accept = (pad.pressed & PAD_CROSS) || keys.accept;
+		input.back = (pad.pressed & PAD_CIRCLE) || keys.back;
+		input.square = (pad.pressed & PAD_SQUARE) || keys.square;
+		input.triangle = (pad.pressed & PAD_TRIANGLE) || keys.triangle;
+		input.pageUp = (pad.pressed & PAD_L1) || keys.pageUp;
+		input.pageDown = (pad.pressed & PAD_R1) || keys.pageDown;
+		input.start = (pad.pressed & PAD_OPTIONS) || keys.start;
 		return input;
 	}
 
@@ -399,6 +406,7 @@ bool PS5_RunLauncher(std::vector<std::string> &arguments)
 	try
 	{
 		TextPresenter presenter;
+		PS5_KeyboardLauncherMode(true);
 		PadInput pad;
 		dosui::TextScreen screen;
 		while (result == dosui::Launcher::Result::Running)
@@ -415,6 +423,7 @@ bool PS5_RunLauncher(std::vector<std::string> &arguments)
 		result = dosui::Launcher::Result::Launch;
 	}
 
+	PS5_KeyboardLauncherMode(false);
 	if (result == dosui::Launcher::Result::Quit)
 		return false;
 	const std::vector<std::string> chosen = launcher.BuildArguments();

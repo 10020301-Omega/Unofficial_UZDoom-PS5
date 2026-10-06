@@ -36,6 +36,7 @@
 #include "m_haptics.h"
 #include "m_joy.h"
 #include "printf.h"
+#include "ps5_keyboard.h"
 #include "tarray.h"
 #include "zstring.h"
 
@@ -46,9 +47,6 @@ extern "C"
 
 bool GUICapture;
 
-void PS5_KeyboardOpen();
-void PS5_KeyboardClose();
-void PS5_KeyboardPoll();
 
 // There is no mouse; the cvar stays because menus and the config file name it.
 CVAR (Bool, use_mouse, false, CVAR_ARCHIVE|CVAR_GLOBALCONFIG)

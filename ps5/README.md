@@ -93,17 +93,16 @@ Seen working on one console:
 - it starts, and returns to the home screen when the game is quit;
 - the launcher, the display (3840 x 2160 at 59.94 Hz), the pad;
 - DOOM and mods load and play; `/data/uzdoom/` is used for the user's files;
-- sound effects and music (FluidSynth with the shipped SoundFont).
+- sound effects and music (FluidSynth with the shipped SoundFont);
+- a USB keyboard, through libSceIme. The console connects that library's
+  imports a moment after the title loads it, not at once (`ps5_keyboard.cpp`).
 
 Proven on a PC:
 - the launcher's logic and drawing (`ps5/launcher/test_launcher.cpp`).
 
 Not proven:
-- the USB keyboard: a title is refused the keyboard library (its module id
-  answers 0x805a1000 and its imports stay unbound), so `ps5/kbd-helper` is a
-  payload that reads the keyboard and sends its state to the game over
-  loopback UDP (`ps5_keyboard.cpp` listens). Not yet tried on a console; the
-  helper logs to `/data/uzdoom/kbd-helper.log`;
+- the USB mouse (libSceMouse, read the way the keyboard is): written and not
+  yet tried on a console; `uzdoom.log` has "Mouse:" lines saying what happened;
 - anything on a second console or another firmware;
 - Heretic, Hexen, Strife and the other supported games (only DOOM was played);
 - performance under heavy mods.
