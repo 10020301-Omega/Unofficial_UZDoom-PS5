@@ -96,6 +96,9 @@ and has not been audited. There is no warranty.
   PS5_Vulkan and the RADV port; the PS5 payload SDK authors.
 - Mesa (RADV), OpenAL Soft, FluidSynth, libsndfile, mpg123, Xiph.Org's codecs.
 - S. Christian Collins for the GeneralUser GS SoundFont.
+- The PS4 Developer Wiki and the PS4/PS5 emulator projects (shadPS4, AnyPS5),
+  whose public documentation of the console's keyboard and mouse libraries
+  the port's input code was written from. No code of theirs is used.
 
 "PlayStation" and "PS5" are trademarks of Sony Interactive Entertainment Inc.
 DOOM is a trademark of id Software LLC.

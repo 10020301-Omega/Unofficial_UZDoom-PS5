@@ -25,6 +25,7 @@ repository's top-level README, and `AI-DISCLOSURE.txt` in the title folder.
 | `ps5/launcher/` | The launcher: an 80 x 25 text-mode screen in code page 437. It knows nothing of the console, so `test_launcher.cpp` runs it on a PC. |
 | `ps5/tools/` | The build: `build.sh` drives it. |
 | `ps5/patches/` | The PlayStation 5 output backend for OpenAL Soft. |
+| `ps5/stubs/` | Link-time names for the console's keyboard (libSceIme) and mouse (libSceMouse) libraries, which the SDK has no stubs for. |
 | `ps5/sce_sys/` | The title's identity (`param.json`) and icon. |
 | `libraries/ZMusic/thirdparty/fluidsynth/src/utils/posix_glibstubs.*` | Stand-ins for the parts of GLib FluidSynth uses, on POSIX threads. |
 | `libraries/ZVulkan/src/vulkaninstance.cpp` | Vulkan's functions come from the driver linked into the title, not from a loader. |

@@ -106,8 +106,8 @@ AI_DISCLOSURE = """{name} for PlayStation 5 - AI disclosure
 Parts of this port were written with the help of an AI system.
 
 What that covers: the PS5-specific work in this title - the platform layer
-(video, input, sound output, start-up), the DOS-style launcher, the build,
-link and packaging scripts, the patches to the engine and its libraries
+(video, pad, keyboard and mouse input, sound output, start-up), the
+DOS-style launcher, the build, link and packaging scripts, the patches to the engine and its libraries
 that make them build for the console, and the documentation, this file
 included. That work was produced by Claude, an AI model made by Anthropic,
 working under the direction of the person who maintains the port, who ran
@@ -161,6 +161,12 @@ included.
 The port's source is also published at
 https://github.com/10020301-Omega/Unofficial_UZDoom-PS5
 but _source/ is the source that goes with this build.
+
+The keyboard and mouse are read through the console's own input libraries,
+which are part of the console and not of this title. The port's code for
+them is its own (GPL-3.0-or-later), written from public documentation of
+those libraries: the PS4 Developer Wiki and the open-source emulators
+shadPS4 and AnyPS5. No code from those projects is included.
 
 AI: parts of this port were written with the help of an AI system; see
 AI-DISCLOSURE.txt.
