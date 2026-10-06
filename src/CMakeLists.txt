@@ -487,6 +487,12 @@ elseif( PS5 )
 	file( READ ${CMAKE_SOURCE_DIR}/ps5/sce_sys/param.json PS5_PARAM_JSON )
 	string( JSON PS5_TITLE_ID GET "${PS5_PARAM_JSON}" titleId )
 	set_property( DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/ps5/sce_sys/param.json )
+	# The release this build belongs to (ps5/RELEASE), shown beside the build
+	# in the launcher's title bar.
+	file( STRINGS "${CMAKE_SOURCE_DIR}/ps5/RELEASE" PS5_RELEASE LIMIT_COUNT 1 )
+	set_property( DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/ps5/RELEASE" )
+	set_source_files_properties( common/platform/posix/ps5/ps5_launcher.cpp PROPERTIES
+		COMPILE_DEFINITIONS "PS5_RELEASE=\"${PS5_RELEASE}\"" )
 	set_source_files_properties( common/platform/posix/ps5/ps5_main.cpp PROPERTIES
 		COMPILE_DEFINITIONS "PS5_TITLE_ID=\"${PS5_TITLE_ID}\"" )
 	# Its calls go through the import table directly, where it can see whether
