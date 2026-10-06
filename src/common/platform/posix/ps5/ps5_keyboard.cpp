@@ -20,11 +20,10 @@
 #include <cstdint>
 #include <cstring>
 
-#include <arpa/inet.h>
 #include <fcntl.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
 #include <unistd.h>
+
+#include <string>
 
 #include "c_buttons.h"
 #include "c_cvars.h"
@@ -35,6 +34,7 @@
 #include "printf.h"
 
 #include "ps5_keymap.h"
+#include "ps5_paths.h"
 
 extern "C"
 {
@@ -336,95 +336,113 @@ bool OpenImeRoute(int32_t user)
 //==========================================================================
 //
 // The helper payload (ps5/kbd-helper): it runs outside the title, where the
-// keyboard library can be had, and sends the keyboard's state to this port
-// on the loopback address. Loopback only, so nothing on the network can
-// type into the game.
+// keyboard library can be had, and writes the keyboard's states into a file
+// in the user's folder, which this reads. A file, because the console
+// refuses a title a loopback socket (bind answers EACCES).
 //
 //==========================================================================
 
 namespace
 {
 
-constexpr uint16_t HelperPort = 28766;
-constexpr uint64_t HelperTimeout = 2000; // ms without a packet: it is gone
+constexpr int HelperRing = 64;
+constexpr uint64_t HelperTimeout = 2000; // ms without a heartbeat: it is gone
 
-struct HelperPacket
+struct HelperState
 {
 	char magic[4]; // "UZK1"
 	uint8_t connected, modifiers, count, zero;
 	uint16_t keys[16];
 };
-static_assert(sizeof(HelperPacket) == 40, "the helper sends 40 bytes");
+static_assert(sizeof(HelperState) == 40, "the helper writes 40 bytes a state");
 
-int HelperSocket = -1;
-bool HelperAlive;
-uint64_t HelperSeen;
-
-void OpenHelperSocket()
+struct HelperFile
 {
-	if (HelperSocket >= 0) return;
-	const int s = socket(AF_INET, SOCK_DGRAM, 0);
-	if (s < 0)
-	{
-		Printf("Keyboard: no socket for the helper (errno %d)\n", errno);
-		return;
-	}
-	sockaddr_in address;
-	memset(&address, 0, sizeof(address));
-	address.sin_len = sizeof(address);
-	address.sin_family = AF_INET;
-	address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-	address.sin_port = htons(HelperPort);
-	const int flags = fcntl(s, F_GETFL, 0);
-	if (bind(s, (sockaddr *)&address, sizeof(address)) < 0 || fcntl(s, F_SETFL, flags | O_NONBLOCK) < 0)
-	{
-		Printf("Keyboard: cannot listen for the helper on port %d (errno %d)\n", HelperPort, errno);
-		close(s);
-		return;
-	}
-	HelperSocket = s;
-	Printf("Keyboard: listening for the helper payload on 127.0.0.1:%d\n", HelperPort);
-}
+	char magic[4]; // "UZKF"
+	uint32_t version;
+	uint64_t count; // states written so far; state n is in slot n % 64
+	uint64_t beat;  // changes while the helper lives
+	HelperState ring[HelperRing];
+};
+static_assert(offsetof(HelperFile, ring) == 24, "the file's header is 24 bytes");
+
+int HelperFd = -1;
+bool HelperAlive, HelperEverSeen;
+uint64_t HelperBeat, HelperBeatAt, HelperCount, HelperRetryAt;
 
 // True while the helper is the one to believe.
 bool PollHelper()
 {
-	if (HelperSocket < 0) return false;
-	HelperPacket packet, newest;
-	bool got = false;
-	for (int i = 0; i < 64; i++)
-	{
-		const ssize_t size = recv(HelperSocket, &packet, sizeof(packet), 0);
-		if (size < 0) break;
-		if (size != sizeof(packet) || memcmp(packet.magic, "UZK1", 4) != 0) continue;
-		newest = packet;
-		got = true;
-		if (!use_keyboard) continue;
-		// Every packet, in order: a key pressed and let go between two frames
-		// is still a press.
-		KeyboardData data;
-		memset(&data, 0, sizeof(data));
-		data.connected = packet.connected;
-		data.modifiers = packet.modifiers;
-		data.length = packet.count > 16 ? 16 : packet.count;
-		memcpy(data.keyCode, packet.keys, sizeof(data.keyCode));
-		if (data.connected) Apply(data); else ReleaseAll();
-	}
 	const uint64_t now = I_msTime();
-	if (got)
+	if (HelperFd < 0)
 	{
-		if (!HelperAlive)
-		{
-			Printf("Keyboard: the helper payload is sending (keyboard %s).\n", newest.connected ? "connected" : "not connected");
-			HelperAlive = true;
-		}
-		HelperSeen = now;
+		if (now < HelperRetryAt) return false;
+		HelperRetryAt = now + 1000;
+		const std::string path = std::string(PS5_UserRoot()) + "/kbd-state.bin";
+		HelperFd = open(path.c_str(), O_RDONLY);
+		if (HelperFd < 0) return false;
+		HelperBeat = 0;
+		HelperBeatAt = 0;
 	}
-	else if (HelperAlive && now - HelperSeen > HelperTimeout)
+
+	HelperFile file;
+	const ssize_t size = pread(HelperFd, &file, sizeof(file), 0);
+	if (size != (ssize_t)sizeof(file) || memcmp(file.magic, "UZKF", 4) != 0 || file.version != 1)
+	{
+		// Not there yet, or being made again by a helper just started.
+		if (size < 0 || (HelperAlive && now - HelperBeatAt > HelperTimeout))
+		{
+			close(HelperFd);
+			HelperFd = -1;
+		}
+	}
+	else if (file.beat != HelperBeat)
+	{
+		const bool first = HelperBeatAt == 0;
+		HelperBeat = file.beat;
+		HelperBeatAt = now;
+		if (first)
+		{
+			// The file may be left from before the console was restarted:
+			// believe it only once its heartbeat has been seen to move.
+			HelperCount = file.count;
+		}
+		else
+		{
+			if (!HelperAlive)
+			{
+				Printf("Keyboard: the helper payload is running.\n");
+				HelperAlive = true;
+				HelperEverSeen = true;
+				// Start from the newest state only.
+				HelperCount = file.count > 0 ? file.count - 1 : 0;
+			}
+			if (file.count < HelperCount) HelperCount = 0; // a new helper began again
+			if (file.count - HelperCount > HelperRing) HelperCount = file.count - HelperRing;
+			for (; HelperCount < file.count; HelperCount++)
+			{
+				const HelperState &state = file.ring[HelperCount % HelperRing];
+				if (memcmp(state.magic, "UZK1", 4) != 0 || !use_keyboard) continue;
+				KeyboardData data;
+				memset(&data, 0, sizeof(data));
+				data.connected = state.connected;
+				data.modifiers = state.modifiers;
+				data.length = state.count > 16 ? 16 : state.count;
+				memcpy(data.keyCode, state.keys, sizeof(data.keyCode));
+				if (data.connected) Apply(data); else ReleaseAll();
+			}
+		}
+	}
+
+	if (HelperAlive && now - HelperBeatAt > HelperTimeout)
 	{
 		Printf("Keyboard: the helper payload went quiet.\n");
 		HelperAlive = false;
+		HelperBeatAt = 0;
 		ReleaseAll();
+		// It may come back with a new file under the same name.
+		close(HelperFd);
+		HelperFd = -1;
 	}
 	return HelperAlive;
 }
@@ -433,7 +451,7 @@ bool PollHelper()
 
 void PS5_KeyboardOpen()
 {
-	OpenHelperSocket();
+	Printf("Keyboard: watching for the helper payload's file, %s/kbd-state.bin\n", PS5_UserRoot());
 	if (Active != Route::None) return;
 	if (Imported(&sceSysmoduleLoadModuleInternal) == 0 || Imported(&sceSysmoduleLoadModule) == 0 ||
 		Imported(&sceKernelLoadStartModule) == 0 || Imported(&sceUserServiceGetInitialUser) == 0)
@@ -490,8 +508,8 @@ void PS5_KeyboardClose()
 	if (Active == Route::Ime) sceImeKeyboardClose(ImeUser);
 	Handle = -1;
 	Active = Route::None;
-	if (HelperSocket >= 0) close(HelperSocket);
-	HelperSocket = -1;
+	if (HelperFd >= 0) close(HelperFd);
+	HelperFd = -1;
 }
 
 static void Repeat()

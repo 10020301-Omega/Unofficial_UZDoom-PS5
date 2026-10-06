@@ -4,37 +4,41 @@
  * The game is a title, and the console does not give a title its keyboard
  * library. A payload is not held to that: this one runs beside the game,
  * reads the USB keyboard through libSceKeyboard and sends which keys are
- * down to the game over the console's loopback address (UDP, port 28766).
- * The game listens there (ps5_keyboard.cpp).
+ * down into a small file the game reads, /data/uzdoom/kbd-state.bin
+ * (ps5_keyboard.cpp). A file, because a title is refused a loopback socket
+ * (bind answers EACCES) and both sides can reach that folder.
  *
  * Send it to the payload loader once per boot, before or after starting the
  * game. What it finds goes to /data/uzdoom/kbd-helper.log, and its first
  * answers pop up as notifications.
  *
- * One packet, 40 bytes, is the whole state:
- *   "UZK1", connected (1), HID modifier byte (1), key count (1), 0,
- *   16 HID usage IDs (uint16 each, little-endian)
+ * The file: a 24-byte header, then a ring of the last 64 states.
+ *   header: "UZKF", version (uint32, 1), count of states written so far
+ *           (uint64), a heartbeat that changes while the helper lives (uint64)
+ *   state, 40 bytes: "UZK1", connected (1), HID modifier byte (1),
+ *           key count (1), 0, 16 HID usage IDs (uint16 each)
+ * State number n is in slot n % 64. A state is written before the count
+ * that announces it.
  *
  * Copyright 2026 PS5-UZDOOM port contributors
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-#include <arpa/inet.h>
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <netinet/in.h>
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-#include <sys/socket.h>
+#include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
 
-#define PORT 28766
-#define LOCK_PORT 28767
-#define LOG_PATH "/data/uzdoom/kbd-helper.log"
+#define FOLDER "/data/uzdoom"
+#define STATE_PATH FOLDER "/kbd-state.bin"
+#define LOG_PATH FOLDER "/kbd-helper.log"
+#define RING 64
 
 int sceUserServiceInitialize(const void *params);
 int sceUserServiceGetInitialUser(int32_t *user);
@@ -69,6 +73,15 @@ struct packet
 	uint16_t keys[16];
 };
 _Static_assert(sizeof(struct packet) == 40, "packet size");
+
+struct header
+{
+	char magic[4];
+	uint32_t version;
+	uint64_t count;
+	uint64_t beat;
+};
+_Static_assert(sizeof(struct header) == 24, "header size");
 
 static FILE *logfile;
 
@@ -135,20 +148,30 @@ static double now(void)
 	return t.tv_sec + t.tv_nsec / 1e9;
 }
 
+/* Another copy is running if the state file's heartbeat is moving. */
+static int already_running(void)
+{
+	struct header first, second;
+	int fd = open(STATE_PATH, O_RDONLY);
+	if (fd < 0) return 0;
+	const int got = pread(fd, &first, sizeof(first), 0) == sizeof(first);
+	usleep(700000);
+	const int again = pread(fd, &second, sizeof(second), 0) == sizeof(second);
+	close(fd);
+	return got && again && memcmp(first.magic, "UZKF", 4) == 0 && first.beat != second.beat;
+}
+
 int main(void)
 {
-	logfile = fopen(LOG_PATH, "w");
-	say("uzdoom-kbd helper starting (pid %d)", (int)getpid());
+	mkdir(FOLDER, 0777);
+	/* Added to, not replaced: a second copy must not wipe what the first found. */
+	struct stat info;
+	const int big = stat(LOG_PATH, &info) == 0 && info.st_size > 256 * 1024;
+	logfile = fopen(LOG_PATH, big ? "w" : "a");
+	chmod(LOG_PATH, 0666);
+	say("---- uzdoom-kbd helper starting (pid %d) ----", (int)getpid());
 
-	/* Only one of these at a time: a second copy finds the lock port taken. */
-	int lock = socket(AF_INET, SOCK_DGRAM, 0);
-	struct sockaddr_in lock_address;
-	memset(&lock_address, 0, sizeof(lock_address));
-	lock_address.sin_len = sizeof(lock_address);
-	lock_address.sin_family = AF_INET;
-	lock_address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-	lock_address.sin_port = htons(LOCK_PORT);
-	if (lock < 0 || bind(lock, (struct sockaddr *)&lock_address, sizeof(lock_address)) < 0)
+	if (already_running())
 	{
 		notify("UZDoom keyboard helper is already running.");
 		return 0;
@@ -180,24 +203,30 @@ int main(void)
 		return 1;
 	}
 
-	int out = socket(AF_INET, SOCK_DGRAM, 0);
-	struct sockaddr_in game;
-	memset(&game, 0, sizeof(game));
-	game.sin_len = sizeof(game);
-	game.sin_family = AF_INET;
-	game.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-	game.sin_port = htons(PORT);
+	int out = open(STATE_PATH, O_RDWR | O_CREAT | O_TRUNC, 0666);
 	if (out < 0)
 	{
-		notify("UZDoom keyboard helper: no socket (errno %d).", errno);
+		notify("UZDoom keyboard helper: cannot write " STATE_PATH " (errno %d).", errno);
 		return 1;
+	}
+	fchmod(out, 0666);
+	struct header header;
+	memset(&header, 0, sizeof(header));
+	memcpy(header.magic, "UZKF", 4);
+	header.version = 1;
+	header.beat = 1;
+	{
+		char zero[RING * sizeof(struct packet)];
+		memset(zero, 0, sizeof(zero));
+		pwrite(out, &header, sizeof(header), 0);
+		pwrite(out, zero, sizeof(zero), sizeof(header));
 	}
 	notify("UZDoom keyboard helper is running.");
 
 	struct packet last;
 	memset(&last, 0, sizeof(last));
-	double last_sent = 0, last_report = now();
-	int read_errors = 0, reports = 0, changes = 0, first_key_said = 0;
+	double last_beat = 0, last_report = now();
+	int read_errors = 0, reports = 0, changes = 0, first_key_said = 0, written = 0;
 	for (;;)
 	{
 		struct keyboard_data data;
@@ -205,8 +234,11 @@ int main(void)
 		const int result = sceKeyboardReadState(handle, &data);
 		if (result < 0)
 		{
-			if (read_errors++ == 0) say("sceKeyboardReadState 0x%08x", (unsigned)result);
-			if (read_errors == 1) notify("UZDoom keyboard helper: reading the keyboard failed (0x%08x).", (unsigned)result);
+			if (read_errors++ == 0)
+			{
+				say("sceKeyboardReadState 0x%08x", (unsigned)result);
+				notify("UZDoom keyboard helper: reading the keyboard failed (0x%08x).", (unsigned)result);
+			}
 			usleep(500000);
 			continue;
 		}
@@ -223,7 +255,7 @@ int main(void)
 		for (int i = 0; i < count; i++) packet.keys[i] = data.key_code[i];
 
 		const double t = now();
-		const int changed = memcmp(&packet, &last, sizeof(packet)) != 0;
+		const int changed = !written || memcmp(&packet, &last, sizeof(packet)) != 0;
 		if (changed)
 		{
 			changes++;
@@ -238,14 +270,20 @@ int main(void)
 				first_key_said = 1;
 				notify("UZDoom keyboard helper: keys are being read.");
 			}
-		}
-		/* On every change, and four times a second so the game knows the
-		 * helper is alive and recovers from a lost packet. */
-		if (changed || t - last_sent >= 0.25)
-		{
-			sendto(out, &packet, sizeof(packet), 0, (struct sockaddr *)&game, sizeof(game));
+			/* The state first, then the count that announces it. */
+			pwrite(out, &packet, sizeof(packet), sizeof(header) + (header.count % RING) * sizeof(packet));
+			header.count++;
+			header.beat++;
+			pwrite(out, &header, sizeof(header), 0);
 			last = packet;
-			last_sent = t;
+			last_beat = t;
+			written = 1;
+		}
+		else if (t - last_beat >= 0.25)
+		{
+			header.beat++;
+			pwrite(out, &header, sizeof(header), 0);
+			last_beat = t;
 		}
 		if (reports < 6 && t - last_report >= 5.0)
 		{
