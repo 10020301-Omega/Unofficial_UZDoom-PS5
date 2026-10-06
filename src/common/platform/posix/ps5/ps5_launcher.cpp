@@ -36,6 +36,7 @@
 #include "ps5_launcher.h"
 #include "ps5_paths.h"
 #include "textscreen.h"
+#include "version.h"
 
 extern "C"
 {
@@ -384,6 +385,7 @@ std::string TakeLastError()
 bool PS5_RunLauncher(std::vector<std::string> &arguments)
 {
 	dosui::Launcher launcher(PS5_UserRoot(), PS5_APP_ROOT, PS5_UserRootShown());
+	launcher.SetBuildLabel(std::string("build ") + std::string(GetGitHash()).substr(0, 7));
 	launcher.Load();
 	launcher.Rescan();
 	const std::string lastError = TakeLastError();

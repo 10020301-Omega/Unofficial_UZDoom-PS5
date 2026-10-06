@@ -649,6 +649,11 @@ void Launcher::DrawFrame(TextScreen &out, const std::string &help) const
 	out.Clear(BackgroundAttr, CH_SHADE_LIGHT);
 	out.Fill(0, 0, TextScreen::Columns, 1, ' ', BarAttr);
 	out.PrintCentered(0, 0, TextScreen::Columns, "UZDoom Setup  -  PlayStation 5", BarAttr);
+	if (!buildLabel.empty())
+	{
+		const int width = (int)buildLabel.size() + 1;
+		out.PrintCentered(TextScreen::Columns - width, 0, width, buildLabel, BarAttr);
+	}
 	DrawHelp(out, help);
 }
 

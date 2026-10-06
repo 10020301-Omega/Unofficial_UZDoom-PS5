@@ -77,6 +77,9 @@ public:
 
 	// Make the user's folders if they are missing and read them again.
 	void Rescan();
+	// Which build this is, shown in the title bar's corner: what is running
+	// can then be read off the screen.
+	void SetBuildLabel(const std::string &label) { buildLabel = label; }
 	// A message to show first, such as the last run's fatal error.
 	void ShowMessage(const std::string &title, const std::string &text);
 
@@ -127,6 +130,7 @@ private:
 	int top = 0;         // first list row shown
 	int mainCursor = 0;  // remembered while a sub-screen is open
 	std::string messageTitle, messageText;
+	std::string buildLabel;
 };
 
 // A game file's proper name ("DOOM II: Hell on Earth"), or its file name.
