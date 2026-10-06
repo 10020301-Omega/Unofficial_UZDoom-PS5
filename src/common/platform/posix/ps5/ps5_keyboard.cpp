@@ -101,6 +101,7 @@ enum
 	ImeKeyboardEventDisconnection = 261, ImeKeyboardEventAbort = 262,
 };
 constexpr uint32_t SysmoduleLibIme = 0x0095;
+constexpr uint32_t SysmoduleMouse = 0x00A9;
 
 // The keyboard library is not among the modules a title starts with. Until it
 // is loaded its functions are null addresses in this program's import table,
@@ -440,9 +441,13 @@ void PollMouse(int32_t user)
 	if (Mouse == MouseStage::Unasked)
 	{
 		if (Imported(&sceKernelLoadStartModule) == 0) { Mouse = MouseStage::Failed; return; }
-		int load = 0;
-		if (!MouseBound()) load = sceKernelLoadStartModule("libSceMouse.sprx", 0, nullptr, 0, nullptr, nullptr);
-		Printf("Mouse: libSceMouse by name 0x%08x -> %s\n", (unsigned)load, MouseBound() ? "bound" : "not bound yet");
+		// By its module id, as the keyboard's library was: by name the console
+		// only finds a module that is already loaded (0x80020002 otherwise).
+		int byId = 0, byName = 0;
+		if (!MouseBound() && Imported(&sceSysmoduleLoadModule) != 0) byId = sceSysmoduleLoadModule(SysmoduleMouse);
+		if (!MouseBound()) byName = sceKernelLoadStartModule("libSceMouse.sprx", 0, nullptr, 0, nullptr, nullptr);
+		Printf("Mouse: libSceMouse by id 0x%08x, by name 0x%08x -> %s\n", (unsigned)byId, (unsigned)byName,
+			MouseBound() ? "bound" : "not bound yet");
 		Mouse = MouseStage::Loading;
 	}
 	if (Mouse == MouseStage::Loading)
