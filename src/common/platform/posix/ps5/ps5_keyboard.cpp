@@ -47,6 +47,16 @@ int sceKeyboardClose(int32_t handle);
 int sceSysmoduleLoadModuleInternal(uint32_t id);
 int sceSysmoduleLoadModule(uint32_t id);
 int sceKernelLoadStartModule(const char *name, size_t argc, const void *argv, uint32_t flags, void *option, int *result);
+int sceKernelDlsym(int handle, const char *symbol, void **address);
+struct KernelModuleInfo
+{
+	size_t size;
+	char name[256];
+	struct { void *address; uint32_t size; int32_t protection; } segments[4];
+	uint32_t segmentCount;
+	uint8_t fingerprint[20];
+};
+int sceKernelGetModuleInfo(int handle, KernelModuleInfo *info);
 
 // The text-input library's keyboard: events instead of a state to poll.
 struct ImeEvent;
@@ -476,6 +486,30 @@ void PS5_KeyboardOpen()
 	{
 		const int load = sceKernelLoadStartModule("libSceIme.sprx", 0, nullptr, 0, nullptr, nullptr);
 		Printf("Keyboard: libSceIme by name 0x%08x -> %s\n", (unsigned)load, ImeBound() ? "bound" : "not bound");
+		// The console loaded it and did not connect it. Ask where it is and
+		// whether a function in it can be looked up by hand: facts for the
+		// log, nothing is called through what this finds.
+		if (load > 0 && Imported(&sceKernelGetModuleInfo) != 0 && Imported(&sceKernelDlsym) != 0)
+		{
+			KernelModuleInfo info;
+			memset(&info, 0, sizeof(info));
+			info.size = sizeof(info);
+			const int got = sceKernelGetModuleInfo(load, &info);
+			Printf("Keyboard: module info 0x%08x, name '%.32s', %u segments\n", (unsigned)got, info.name, (unsigned)info.segmentCount);
+			for (uint32_t i = 0; got == 0 && i < info.segmentCount && i < 4; i++)
+			{
+				Printf("Keyboard:   segment %u at %p, %u bytes, protection %d\n", (unsigned)i,
+					info.segments[i].address, (unsigned)info.segments[i].size, (int)info.segments[i].protection);
+			}
+			static const char *const names[] = { "sceImeKeyboardOpen", "sceImeUpdate", "sceImeKeyboardClose",
+				"module_start" };
+			for (const char *name : names)
+			{
+				void *address = nullptr;
+				const int found = sceKernelDlsym(load, name, &address);
+				Printf("Keyboard:   lookup '%s' 0x%08x -> %p\n", name, (unsigned)found, address);
+			}
+		}
 	}
 	if (!KeyboardBound())
 	{
