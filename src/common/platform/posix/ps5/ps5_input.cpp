@@ -395,8 +395,8 @@ static void PollPads()
 
 void I_StartupJoysticks()
 {
-	PS5_KeyboardOpen();
 	PadsOpen = pad_open();
+	PS5_KeyboardOpen(); // after the pads: opening them starts the user service
 	if (!PadsOpen)
 	{
 		Printf("No controller could be opened.\n");

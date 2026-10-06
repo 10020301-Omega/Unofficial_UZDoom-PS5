@@ -37,6 +37,21 @@ int sceKeyboardOpen(int32_t user_id, int32_t type, int32_t index, const void *pa
 int sceKeyboardReadState(int32_t handle, void *data);
 int sceKeyboardRead(int32_t handle, void *data, int32_t count);
 int sceKeyboardClose(int32_t handle);
+int sceSysmoduleLoadModuleInternal(uint32_t id);
+}
+
+// The keyboard library is not among the modules a title starts with. Until it
+// is loaded its functions are null addresses in this program's import table,
+// and calling one is a crash (the first build with a keyboard did just that).
+constexpr uint32_t SysmoduleInternalKeyboard = 0x80000008;
+
+// The address the import table holds for a function, read where the compiler
+// cannot assume it is set. This file is compiled with -fno-plt, so the calls
+// go through the same table entry this reads.
+template<class F> static uintptr_t Imported(F *function)
+{
+	volatile uintptr_t address = reinterpret_cast<uintptr_t>(function);
+	return address;
 }
 
 extern bool GUICapture;
@@ -196,7 +211,24 @@ void PS5_KeyboardOpen()
 {
 	if (Handle >= 0) return;
 	int32_t user = -1;
+	if (Imported(&sceSysmoduleLoadModuleInternal) == 0 || Imported(&sceUserServiceGetInitialUser) == 0)
+	{
+		Printf("Keyboard: the console's module loader is not available to the title; only the controller will work.\n");
+		return;
+	}
 	const int userResult = sceUserServiceGetInitialUser(&user);
+	const int load = sceSysmoduleLoadModuleInternal(SysmoduleInternalKeyboard);
+	const uintptr_t imports[] = { Imported(&sceKeyboardInit), Imported(&sceKeyboardOpen),
+		Imported(&sceKeyboardReadState), Imported(&sceKeyboardRead), Imported(&sceKeyboardClose) };
+	bool bound = true;
+	for (uintptr_t address : imports) bound = bound && address != 0;
+	Printf("Keyboard: module load 0x%08x, functions %s (init at %p)\n",
+		(unsigned)load, bound ? "bound" : "NOT bound", (void *)imports[0]);
+	if (!bound)
+	{
+		Printf("Keyboard: the console did not provide its keyboard library; only the controller will work.\n");
+		return;
+	}
 	const int init = sceKeyboardInit();
 	int open = sceKeyboardOpen(user, 0, 0, nullptr);
 	int tried = user;

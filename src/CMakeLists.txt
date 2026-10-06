@@ -489,6 +489,10 @@ elseif( PS5 )
 	set_property( DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/ps5/sce_sys/param.json )
 	set_source_files_properties( common/platform/posix/ps5/ps5_main.cpp PROPERTIES
 		COMPILE_DEFINITIONS "PS5_TITLE_ID=\"${PS5_TITLE_ID}\"" )
+	# Its calls go through the import table directly, where it can see whether
+	# the console filled an entry in (see the file).
+	set_source_files_properties( common/platform/posix/ps5/ps5_keyboard.cpp PROPERTIES
+		COMPILE_OPTIONS "-fno-plt" SKIP_UNITY_BUILD_INCLUSION ON )
 else()
 	option (SYSTEMINSTALL "Set global progdir based on CMake Install Dir" OFF)
 
