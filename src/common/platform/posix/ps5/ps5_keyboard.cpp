@@ -38,7 +38,46 @@ int sceKeyboardReadState(int32_t handle, void *data);
 int sceKeyboardRead(int32_t handle, void *data, int32_t count);
 int sceKeyboardClose(int32_t handle);
 int sceSysmoduleLoadModuleInternal(uint32_t id);
+int sceSysmoduleLoadModule(uint32_t id);
+int sceKernelLoadStartModule(const char *name, size_t argc, const void *argv, uint32_t flags, void *option, int *result);
+
+// The text-input library's keyboard: events instead of a state to poll.
+struct ImeEvent;
+typedef void (*ImeEventHandler)(void *arg, const ImeEvent *event);
+struct ImeKeyboardParam
+{
+	uint32_t option;
+	int8_t reserved1[4];
+	void *arg;
+	ImeEventHandler handler;
+	int8_t reserved2[8];
+};
+int sceImeKeyboardOpen(int32_t user_id, const ImeKeyboardParam *param);
+int sceImeKeyboardClose(int32_t user_id);
+int sceImeUpdate(ImeEventHandler handler);
 }
+
+struct ImeEvent
+{
+	int32_t id;
+	int32_t pad;
+	// The part of the event's union a key event fills in.
+	uint16_t keycode;     // HID usage
+	uint16_t character;
+	uint32_t status;      // bit 0: keycode is valid
+	uint32_t type;
+	int32_t userId;
+	uint32_t resourceId;
+	uint32_t pad2;
+	uint64_t timestamp;
+};
+enum
+{
+	ImeKeyboardEventOpen = 256, ImeKeyboardEventKeyDown = 257, ImeKeyboardEventKeyUp = 258,
+	ImeKeyboardEventRepeat = 259, ImeKeyboardEventConnection = 260,
+	ImeKeyboardEventDisconnection = 261, ImeKeyboardEventAbort = 262,
+};
+constexpr uint32_t SysmoduleLibIme = 0x0095;
 
 // The keyboard library is not among the modules a title starts with. Until it
 // is loaded its functions are null addresses in this program's import table,
@@ -207,62 +246,177 @@ void Apply(const KeyboardData &data)
 
 } // namespace
 
-void PS5_KeyboardOpen()
+namespace
 {
-	if (Handle >= 0) return;
-	int32_t user = -1;
-	if (Imported(&sceSysmoduleLoadModuleInternal) == 0 || Imported(&sceUserServiceGetInitialUser) == 0)
+
+enum class Route { None, Keyboard, Ime };
+Route Active = Route::None;
+int32_t ImeUser = -1;
+int ImeEvents;       // events of any kind seen, for the log
+int ImeUpdateErrors;
+
+bool KeyboardBound()
+{
+	return Imported(&sceKeyboardInit) != 0 && Imported(&sceKeyboardOpen) != 0 &&
+		Imported(&sceKeyboardReadState) != 0 && Imported(&sceKeyboardRead) != 0 &&
+		Imported(&sceKeyboardClose) != 0;
+}
+
+bool ImeBound()
+{
+	return Imported(&sceImeKeyboardOpen) != 0 && Imported(&sceImeKeyboardClose) != 0 &&
+		Imported(&sceImeUpdate) != 0;
+}
+
+void OnImeEvent(void *, const ImeEvent *event)
+{
+	if (event == nullptr) return;
+	if (ImeEvents < 8)
 	{
-		Printf("Keyboard: the console's module loader is not available to the title; only the controller will work.\n");
-		return;
+		// The first few, whatever they are: enough to see what the console sends.
+		Printf("Keyboard: event %d, key 0x%02x, status 0x%x\n", (int)event->id, (unsigned)event->keycode, (unsigned)event->status);
 	}
-	const int userResult = sceUserServiceGetInitialUser(&user);
-	const int load = sceSysmoduleLoadModuleInternal(SysmoduleInternalKeyboard);
-	const uintptr_t imports[] = { Imported(&sceKeyboardInit), Imported(&sceKeyboardOpen),
-		Imported(&sceKeyboardReadState), Imported(&sceKeyboardRead), Imported(&sceKeyboardClose) };
-	bool bound = true;
-	for (uintptr_t address : imports) bound = bound && address != 0;
-	Printf("Keyboard: module load 0x%08x, functions %s (init at %p)\n",
-		(unsigned)load, bound ? "bound" : "NOT bound", (void *)imports[0]);
-	if (!bound)
+	ImeEvents++;
+	switch (event->id)
 	{
-		Printf("Keyboard: the console did not provide its keyboard library; only the controller will work.\n");
-		return;
+	case ImeKeyboardEventKeyDown:
+	case ImeKeyboardEventKeyUp:
+		if ((event->status & 1) && use_keyboard) KeyChanged(event->keycode, event->id == ImeKeyboardEventKeyDown);
+		break;
+	case ImeKeyboardEventDisconnection:
+	case ImeKeyboardEventAbort:
+		ReleaseAll();
+		break;
 	}
+}
+
+bool OpenKeyboardRoute(int32_t user)
+{
 	const int init = sceKeyboardInit();
 	int open = sceKeyboardOpen(user, 0, 0, nullptr);
 	int tried = user;
 	if (open < 0)
 	{
-		// Some input libraries only open for the system's own user.
-		tried = 0xFF;
+		tried = 0xFF; // the system's own user
 		open = sceKeyboardOpen(tried, 0, 0, nullptr);
 	}
-	Printf("Keyboard: user %d (0x%08x), init 0x%08x, open(user %d) 0x%08x\n",
-		(int)user, (unsigned)userResult, (unsigned)init, tried, (unsigned)open);
+	Printf("Keyboard: libSceKeyboard init 0x%08x, open(user %d) 0x%08x\n", (unsigned)init, tried, (unsigned)open);
+	if (open < 0) return false;
+	Handle = open;
+	return true;
+}
+
+bool OpenImeRoute(int32_t user)
+{
+	ImeKeyboardParam param;
+	memset(&param, 0, sizeof(param));
+	param.handler = OnImeEvent;
+	int open = sceImeKeyboardOpen(user, &param);
+	int tried = user;
 	if (open < 0)
 	{
-		Printf("Keyboard: the console refused it; only the controller will work.\n");
+		tried = 254; // every user
+		open = sceImeKeyboardOpen(tried, &param);
+	}
+	Printf("Keyboard: libSceIme open(user %d) 0x%08x\n", tried, (unsigned)open);
+	if (open < 0) return false;
+	ImeUser = tried;
+	return true;
+}
+
+} // namespace
+
+void PS5_KeyboardOpen()
+{
+	if (Active != Route::None) return;
+	if (Imported(&sceSysmoduleLoadModuleInternal) == 0 || Imported(&sceSysmoduleLoadModule) == 0 ||
+		Imported(&sceKernelLoadStartModule) == 0 || Imported(&sceUserServiceGetInitialUser) == 0)
+	{
+		Printf("Keyboard: the console's module loader is not available to the title; only the controller will work.\n");
 		return;
 	}
-	Handle = open;
+	int32_t user = -1;
+	const int userResult = sceUserServiceGetInitialUser(&user);
+	Printf("Keyboard: user %d (0x%08x); at start libSceKeyboard %s, libSceIme %s\n", (int)user, (unsigned)userResult,
+		KeyboardBound() ? "bound" : "not bound", ImeBound() ? "bound" : "not bound");
+
+	// Neither library is among the modules a title starts with. Ask for each
+	// in the ways there are, and say what each answered and whether the
+	// functions appeared: the log of one run then shows which way works.
+	if (!ImeBound())
+	{
+		const int load = sceSysmoduleLoadModule(SysmoduleLibIme);
+		Printf("Keyboard: libSceIme by id 0x%08x -> %s\n", (unsigned)load, ImeBound() ? "bound" : "not bound");
+	}
+	if (!ImeBound())
+	{
+		const int load = sceKernelLoadStartModule("libSceIme.sprx", 0, nullptr, 0, nullptr, nullptr);
+		Printf("Keyboard: libSceIme by name 0x%08x -> %s\n", (unsigned)load, ImeBound() ? "bound" : "not bound");
+	}
+	if (!KeyboardBound())
+	{
+		const int load = sceSysmoduleLoadModuleInternal(SysmoduleInternalKeyboard);
+		Printf("Keyboard: libSceKeyboard by id 0x%08x -> %s\n", (unsigned)load, KeyboardBound() ? "bound" : "not bound");
+	}
+	if (!KeyboardBound())
+	{
+		const int load = sceKernelLoadStartModule("libSceKeyboard.sprx", 0, nullptr, 0, nullptr, nullptr);
+		Printf("Keyboard: libSceKeyboard by name 0x%08x -> %s\n", (unsigned)load, KeyboardBound() ? "bound" : "not bound");
+	}
+
+	// The text-input library first: it is the one games are meant to use.
+	if (ImeBound() && OpenImeRoute(user)) Active = Route::Ime;
+	else if (KeyboardBound() && OpenKeyboardRoute(user)) Active = Route::Keyboard;
+
+	if (Active == Route::None)
+	{
+		Printf("Keyboard: no way to read one on this console yet; only the controller will work.\n");
+	}
+	else
+	{
+		Printf("Keyboard: reading through %s.\n", Active == Route::Ime ? "libSceIme" : "libSceKeyboard");
+	}
 }
 
 void PS5_KeyboardClose()
 {
-	if (Handle >= 0)
+	if (Active == Route::Keyboard && Handle >= 0) sceKeyboardClose(Handle);
+	if (Active == Route::Ime) sceImeKeyboardClose(ImeUser);
+	Handle = -1;
+	Active = Route::None;
+}
+
+static void Repeat()
+{
+	if (RepeatKey == 0) return;
+	if (!GUICapture || !Down[RepeatKey])
 	{
-		sceKeyboardClose(Handle);
-		Handle = -1;
+		RepeatKey = 0;
+	}
+	else if (I_msTime() >= RepeatAt)
+	{
+		PostGUIKey(RepeatKey, EV_GUI_KeyRepeat);
+		RepeatAt = I_msTime() + RepeatRate;
 	}
 }
 
 void PS5_KeyboardPoll()
 {
-	if (Handle < 0) return;
+	if (Active == Route::None) return;
 	if (!use_keyboard)
 	{
 		ReleaseAll();
+		if (Active == Route::Ime) sceImeUpdate(OnImeEvent); // keep its queue empty
+		return;
+	}
+	if (Active == Route::Ime)
+	{
+		const int result = sceImeUpdate(OnImeEvent);
+		if (result < 0 && ++ImeUpdateErrors == 1)
+		{
+			Printf("Keyboard: libSceIme update failed, 0x%08x\n", (unsigned)result);
+		}
+		Repeat();
 		return;
 	}
 
@@ -287,7 +441,7 @@ void PS5_KeyboardPoll()
 		{
 			if (++ReadErrors == 2)
 			{
-				Printf("Keyboard: reading its history failed too, 0x%08x; giving up on it.\n", (unsigned)result);
+	Printf("Keyboard: reading its history failed too, 0x%08x; giving up on it.\n", (unsigned)result);
 				ReleaseAll();
 				PS5_KeyboardClose();
 			}
@@ -318,16 +472,5 @@ void PS5_KeyboardPoll()
 	Apply(*data);
 
 repeat:
-	if (RepeatKey != 0)
-	{
-		if (!GUICapture || !Down[RepeatKey])
-		{
-			RepeatKey = 0;
-		}
-		else if (I_msTime() >= RepeatAt)
-		{
-			PostGUIKey(RepeatKey, EV_GUI_KeyRepeat);
-			RepeatAt = I_msTime() + RepeatRate;
-		}
-	}
+	Repeat();
 }

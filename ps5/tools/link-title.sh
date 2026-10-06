@@ -65,12 +65,14 @@ cc -std=c++20 -O2 -fno-exceptions -fno-rtti -c "$native/app_crt.cpp" -o "$work/o
 # RADV calls AGC, which the SDK has no stubs for: these name its imports.
 stub() {
     local library=$1 source=$2
-    cc -std=c11 -O2 -fPIC -c "$vulkan/$source" -o "$work/obj/${library}_stub.o"
+    cc -std=c11 -O2 -fPIC -c "$source" -o "$work/obj/${library}_stub.o"
     "$sdk/bin/prospero-lld" --shared -soname "${library}.prx" \
         -o "$work/stubs/${library}.so" "$work/obj/${library}_stub.o"
 }
-stub libSceAgc vendor/ps5/sdk/stubs/agc_canary_link_stub.c
-stub libSceAgcDriver vendor/ps5/sdk/stubs/agc_driver_canary_link_stub.c
+stub libSceAgc "$vulkan/vendor/ps5/sdk/stubs/agc_canary_link_stub.c"
+stub libSceAgcDriver "$vulkan/vendor/ps5/sdk/stubs/agc_driver_canary_link_stub.c"
+# The keyboard's text-input library, which the SDK has no stubs for either.
+stub libSceIme "$(dirname -- "$0")/../stubs/libSceIme_stub.c"
 
 # shellcheck source=/dev/null
 source "$vulkan/tools/radv-link.sh"
@@ -155,7 +157,7 @@ echo "==> bound to the platform layer or the port: ${bound[*]}"
     --no-dynamic-linker --wrap=exit --error-limit=0 -e _start -o "$output" \
     "$work/obj/app_crt.o" "${objects[@]}" \
     --start-group "${libraries[@]}" --end-group \
-    "$work/stubs/libSceAgc.so" "$work/stubs/libSceAgcDriver.so" \
+    "$work/stubs/libSceAgc.so" "$work/stubs/libSceAgcDriver.so" "$work/stubs/libSceIme.so" \
     "${radv_link_inputs[@]}" \
     --as-needed "$sdk"/target/lib/*.so
 
@@ -165,7 +167,7 @@ echo "==> bound to the platform layer or the port: ${bound[*]}"
 null_imports=$(comm -23 \
     <("$sdk/bin/llvm-nm" -D --undefined-only "$output" |
         awk '$1 == "U" { sub(/@.*/, "", $2); print $2 }' | sort -u) \
-    <(for library in "$sdk"/target/lib/*.so "$work/stubs/libSceAgc.so" "$work/stubs/libSceAgcDriver.so"; do
+    <(for library in "$sdk"/target/lib/*.so "$work/stubs/libSceAgc.so" "$work/stubs/libSceAgcDriver.so" "$work/stubs/libSceIme.so"; do
         case ${library##*/} in libkernel_sys.so | libScePosixForWebKit.so) continue ;; esac
         "$sdk/bin/llvm-nm" -D --defined-only "$library" 2>/dev/null | awk '{ print $NF }'
     done | sort -u))
@@ -180,7 +182,7 @@ fi
 
 "$tool" link --in "$output" --out "$output.eboot.elf" \
     --stub-dir "$sdk/target/lib" --stub "$work/stubs/libSceAgc.so" \
-    --stub "$work/stubs/libSceAgcDriver.so" --module-sdk 0x02000009 \
+    --stub "$work/stubs/libSceAgcDriver.so" --stub "$work/stubs/libSceIme.so" --module-sdk 0x02000009 \
     --companion-sdk 0x08050001 --file-name eboot.elf
 "$tool" self --sign --in "$output.eboot.elf" --out "$output.eboot.bin" --magic 0x1D3D154F
 "$tool" self --inspect --file "$output.eboot.bin" > /dev/null
