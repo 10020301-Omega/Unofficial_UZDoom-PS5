@@ -156,6 +156,11 @@ uint64_t RepeatAt;
 bool LauncherMode;
 bool LauncherPressed[ps5key::HID_COUNT];
 
+// The engine's settings do not exist until the engine starts: the launcher
+// runs before that, and reading one then is a null pointer.
+bool KeyboardWanted() { return LauncherMode || use_keyboard; }
+bool MouseWanted() { return LauncherMode || use_keyboard_mouse; }
+
 bool IsDown(uint16_t a, uint16_t b) { return Down[a] || Down[b]; }
 
 int Modifiers()
@@ -314,7 +319,7 @@ void OnImeEvent(void *, const ImeEvent *event)
 	{
 	case ImeKeyboardEventKeyDown:
 	case ImeKeyboardEventKeyUp:
-		if ((event->status & 1) && use_keyboard) KeyChanged(event->keycode, event->id == ImeKeyboardEventKeyDown);
+		if ((event->status & 1) && KeyboardWanted()) KeyChanged(event->keycode, event->id == ImeKeyboardEventKeyDown);
 		break;
 	case ImeKeyboardEventDisconnection:
 	case ImeKeyboardEventAbort:
@@ -497,7 +502,7 @@ void PollMouse(int32_t user)
 		}
 		MouseButtons = data.buttons & 0x1F;
 	}
-	if (!use_keyboard_mouse) return;
+	if (!MouseWanted()) return;
 	if ((dx != 0 || dy != 0) && !GUICapture && !LauncherMode) PostMouseMove(dx, dy);
 	if (wheel != 0) MouseWheel(wheel);
 }
@@ -624,7 +629,7 @@ void PS5_KeyboardPoll()
 		Retries++;
 		if (!TryRoutes()) return;
 	}
-	if (!use_keyboard)
+	if (!KeyboardWanted())
 	{
 		ReleaseAll();
 		if (Active == Route::Ime) sceImeUpdate(OnImeEvent); // keep its queue empty
