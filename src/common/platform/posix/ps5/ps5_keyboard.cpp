@@ -16,8 +16,15 @@
 ** SPDX-License-Identifier: GPL-3.0-or-later
 */
 
+#include <cerrno>
 #include <cstdint>
 #include <cstring>
+
+#include <arpa/inet.h>
+#include <fcntl.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
 
 #include "c_buttons.h"
 #include "c_cvars.h"
@@ -326,8 +333,107 @@ bool OpenImeRoute(int32_t user)
 
 } // namespace
 
+//==========================================================================
+//
+// The helper payload (ps5/kbd-helper): it runs outside the title, where the
+// keyboard library can be had, and sends the keyboard's state to this port
+// on the loopback address. Loopback only, so nothing on the network can
+// type into the game.
+//
+//==========================================================================
+
+namespace
+{
+
+constexpr uint16_t HelperPort = 28766;
+constexpr uint64_t HelperTimeout = 2000; // ms without a packet: it is gone
+
+struct HelperPacket
+{
+	char magic[4]; // "UZK1"
+	uint8_t connected, modifiers, count, zero;
+	uint16_t keys[16];
+};
+static_assert(sizeof(HelperPacket) == 40, "the helper sends 40 bytes");
+
+int HelperSocket = -1;
+bool HelperAlive;
+uint64_t HelperSeen;
+
+void OpenHelperSocket()
+{
+	if (HelperSocket >= 0) return;
+	const int s = socket(AF_INET, SOCK_DGRAM, 0);
+	if (s < 0)
+	{
+		Printf("Keyboard: no socket for the helper (errno %d)\n", errno);
+		return;
+	}
+	sockaddr_in address;
+	memset(&address, 0, sizeof(address));
+	address.sin_len = sizeof(address);
+	address.sin_family = AF_INET;
+	address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+	address.sin_port = htons(HelperPort);
+	const int flags = fcntl(s, F_GETFL, 0);
+	if (bind(s, (sockaddr *)&address, sizeof(address)) < 0 || fcntl(s, F_SETFL, flags | O_NONBLOCK) < 0)
+	{
+		Printf("Keyboard: cannot listen for the helper on port %d (errno %d)\n", HelperPort, errno);
+		close(s);
+		return;
+	}
+	HelperSocket = s;
+	Printf("Keyboard: listening for the helper payload on 127.0.0.1:%d\n", HelperPort);
+}
+
+// True while the helper is the one to believe.
+bool PollHelper()
+{
+	if (HelperSocket < 0) return false;
+	HelperPacket packet, newest;
+	bool got = false;
+	for (int i = 0; i < 64; i++)
+	{
+		const ssize_t size = recv(HelperSocket, &packet, sizeof(packet), 0);
+		if (size < 0) break;
+		if (size != sizeof(packet) || memcmp(packet.magic, "UZK1", 4) != 0) continue;
+		newest = packet;
+		got = true;
+		if (!use_keyboard) continue;
+		// Every packet, in order: a key pressed and let go between two frames
+		// is still a press.
+		KeyboardData data;
+		memset(&data, 0, sizeof(data));
+		data.connected = packet.connected;
+		data.modifiers = packet.modifiers;
+		data.length = packet.count > 16 ? 16 : packet.count;
+		memcpy(data.keyCode, packet.keys, sizeof(data.keyCode));
+		if (data.connected) Apply(data); else ReleaseAll();
+	}
+	const uint64_t now = I_msTime();
+	if (got)
+	{
+		if (!HelperAlive)
+		{
+			Printf("Keyboard: the helper payload is sending (keyboard %s).\n", newest.connected ? "connected" : "not connected");
+			HelperAlive = true;
+		}
+		HelperSeen = now;
+	}
+	else if (HelperAlive && now - HelperSeen > HelperTimeout)
+	{
+		Printf("Keyboard: the helper payload went quiet.\n");
+		HelperAlive = false;
+		ReleaseAll();
+	}
+	return HelperAlive;
+}
+
+} // namespace
+
 void PS5_KeyboardOpen()
 {
+	OpenHelperSocket();
 	if (Active != Route::None) return;
 	if (Imported(&sceSysmoduleLoadModuleInternal) == 0 || Imported(&sceSysmoduleLoadModule) == 0 ||
 		Imported(&sceKernelLoadStartModule) == 0 || Imported(&sceUserServiceGetInitialUser) == 0)
@@ -384,6 +490,8 @@ void PS5_KeyboardClose()
 	if (Active == Route::Ime) sceImeKeyboardClose(ImeUser);
 	Handle = -1;
 	Active = Route::None;
+	if (HelperSocket >= 0) close(HelperSocket);
+	HelperSocket = -1;
 }
 
 static void Repeat()
@@ -402,6 +510,12 @@ static void Repeat()
 
 void PS5_KeyboardPoll()
 {
+	if (PollHelper())
+	{
+		if (!use_keyboard) ReleaseAll();
+		Repeat();
+		return;
+	}
 	if (Active == Route::None) return;
 	if (!use_keyboard)
 	{

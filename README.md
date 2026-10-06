@@ -45,9 +45,12 @@ L1/R1 to page, Options to start the game.
 In the game the pad uses UZDoom's standard gamepad bindings, which can be
 changed under Options.
 
-A USB keyboard plugged into the console is read too (experimental): the usual
-PC keys, the console on `` ` ``, and typing in menus and the console. US layout.
-There is no mouse, and the launcher takes the pad only.
+A USB keyboard works with a helper (experimental): the console does not let
+a game like this read a keyboard itself, so `payloads/uzdoom-kbd.elf` in the
+title folder does it and passes the keys on. Send it to the payload loader
+once after each boot. Then the usual PC keys work, the console opens on
+`` ` ``, and menus and the console take typing. US layout. There is no mouse,
+and the launcher takes the pad only.
 
 ![Choosing mods](ps5/screens/mods.png)
 

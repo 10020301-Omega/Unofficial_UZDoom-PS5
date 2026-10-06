@@ -99,9 +99,11 @@ Proven on a PC:
 - the launcher's logic and drawing (`ps5/launcher/test_launcher.cpp`).
 
 Not proven:
-- the USB keyboard (`ps5_keyboard.cpp`): written against the console's
-  keyboard library without documentation and not yet tried on a console. The
-  log (`uzdoom.log`) has a "Keyboard:" line saying what the console answered;
+- the USB keyboard: a title is refused the keyboard library (its module id
+  answers 0x805a1000 and its imports stay unbound), so `ps5/kbd-helper` is a
+  payload that reads the keyboard and sends its state to the game over
+  loopback UDP (`ps5_keyboard.cpp` listens). Not yet tried on a console; the
+  helper logs to `/data/uzdoom/kbd-helper.log`;
 - anything on a second console or another firmware;
 - Heretic, Hexen, Strife and the other supported games (only DOOM was played);
 - performance under heavy mods.
