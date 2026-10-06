@@ -424,6 +424,7 @@ set( PLAT_PS5_SOURCES
 	common/platform/posix/ps5/hardware.cpp
 	common/platform/posix/ps5/ps5_glstubs.cpp
 	common/platform/posix/ps5/ps5_input.cpp
+	common/platform/posix/ps5/ps5_keyboard.cpp
 	common/platform/posix/ps5/ps5_libc.cpp
 	common/platform/posix/ps5/ps5_launcher.cpp
 	common/platform/posix/ps5/ps5_main.cpp

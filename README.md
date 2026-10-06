@@ -43,14 +43,18 @@ Launcher: D-pad or left stick to move, Cross to choose, Circle to go back,
 L1/R1 to page, Options to start the game.
 
 In the game the pad uses UZDoom's standard gamepad bindings, which can be
-changed under Options. There is no keyboard support yet.
+changed under Options.
+
+A USB keyboard plugged into the console is read too (experimental): the usual
+PC keys, the console on `` ` ``, and typing in menus and the console. US layout.
+There is no mouse, and the launcher takes the pad only.
 
 ![Choosing mods](ps5/screens/mods.png)
 
 ## Limits
 
 Single player only for now. Quitting the game closes the title. The script JIT
-is off. The full list is in [ps5/README.md](ps5/README.md).
+is off. No mouse. The full list is in [ps5/README.md](ps5/README.md).
 
 ## Building
 

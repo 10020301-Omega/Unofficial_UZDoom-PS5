@@ -99,13 +99,15 @@ Proven on a PC:
 - the launcher's logic and drawing (`ps5/launcher/test_launcher.cpp`).
 
 Not proven:
+- the USB keyboard (`ps5_keyboard.cpp`): written against the console's
+  keyboard library without documentation and not yet tried on a console. The
+  log (`uzdoom.log`) has a "Keyboard:" line saying what the console answered;
 - anything on a second console or another firmware;
 - Heretic, Hexen, Strife and the other supported games (only DOOM was played);
 - performance under heavy mods.
 
 Known gaps:
 - The script JIT is off; scripts run in the interpreter.
-- No keyboard: the console (`~`) and text entry are not reachable.
 - Quitting the game closes the title; it does not go back to the launcher.
 - One player. Split-screen and network play are not started.
 - Music is quiet at the engine's defaults; "Music boost" in Sound Options

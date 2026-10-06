@@ -46,6 +46,10 @@ extern "C"
 
 bool GUICapture;
 
+void PS5_KeyboardOpen();
+void PS5_KeyboardClose();
+void PS5_KeyboardPoll();
+
 // There is no mouse; the cvar stays because menus and the config file name it.
 CVAR (Bool, use_mouse, false, CVAR_ARCHIVE|CVAR_GLOBALCONFIG)
 
@@ -391,6 +395,7 @@ static void PollPads()
 
 void I_StartupJoysticks()
 {
+	PS5_KeyboardOpen();
 	PadsOpen = pad_open();
 	if (!PadsOpen)
 	{
@@ -405,6 +410,7 @@ void I_StartupJoysticks()
 
 void I_ShutdownInput()
 {
+	PS5_KeyboardClose();
 	for (int player = 0; player < PAD_PLAYERS; player++)
 	{
 		if (Joysticks[player] != nullptr)
@@ -501,6 +507,7 @@ void I_ReleaseMouseCapture()
 void I_GetEvent()
 {
 	PollPads();
+	PS5_KeyboardPoll();
 }
 
 void I_StartTic()
