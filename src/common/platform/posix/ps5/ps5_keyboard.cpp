@@ -459,6 +459,20 @@ bool PollHelper()
 
 } // namespace
 
+static int32_t OpenUser = -1;
+static uint64_t RetryAt;
+static int Retries;
+
+// The text-input library first: it is the one games are meant to use.
+static bool TryRoutes()
+{
+	if (ImeBound() && OpenImeRoute(OpenUser)) Active = Route::Ime;
+	else if (KeyboardBound() && OpenKeyboardRoute(OpenUser)) Active = Route::Keyboard;
+	if (Active == Route::None) return false;
+	Printf("Keyboard: reading through %s.\n", Active == Route::Ime ? "libSceIme" : "libSceKeyboard");
+	return true;
+}
+
 void PS5_KeyboardOpen()
 {
 	Printf("Keyboard: watching for the helper payload's file, %s/kbd-state.bin\n", PS5_UserRoot());
@@ -522,17 +536,12 @@ void PS5_KeyboardOpen()
 		Printf("Keyboard: libSceKeyboard by name 0x%08x -> %s\n", (unsigned)load, KeyboardBound() ? "bound" : "not bound");
 	}
 
-	// The text-input library first: it is the one games are meant to use.
-	if (ImeBound() && OpenImeRoute(user)) Active = Route::Ime;
-	else if (KeyboardBound() && OpenKeyboardRoute(user)) Active = Route::Keyboard;
-
-	if (Active == Route::None)
+	OpenUser = user;
+	if (!TryRoutes())
 	{
-		Printf("Keyboard: no way to read one on this console yet; only the controller will work.\n");
-	}
-	else
-	{
-		Printf("Keyboard: reading through %s.\n", Active == Route::Ime ? "libSceIme" : "libSceKeyboard");
+		// On the console the imports appear a moment after the module is
+		// loaded, not at once: PS5_KeyboardPoll keeps looking.
+		Printf("Keyboard: not connected yet; still looking.\n");
 	}
 }
 
@@ -568,7 +577,14 @@ void PS5_KeyboardPoll()
 		Repeat();
 		return;
 	}
-	if (Active == Route::None) return;
+	if (Active == Route::None)
+	{
+		// Look again twice a second for the first minute.
+		if (OpenUser == -1 || Retries >= 120 || I_msTime() < RetryAt) return;
+		RetryAt = I_msTime() + 500;
+		Retries++;
+		if (!TryRoutes()) return;
+	}
 	if (!use_keyboard)
 	{
 		ReleaseAll();
