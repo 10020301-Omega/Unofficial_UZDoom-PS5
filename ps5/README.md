@@ -114,3 +114,21 @@ Known gaps:
 - One player. Split-screen and network play are not started.
 - Music is quiet at the engine's defaults; "Music boost" in Sound Options
   (`snd_musicboost`) makes up for it.
+
+## Launcher selection details
+
+The main menu lists the selected files individually in load order. Presets show
+an immediate preview of the highlighted slot without loading it. Long names wrap;
+L1/R1 pages through the details. The eight slots, configuration format and existing
+actions are unchanged. The display remains 80 x 25.
+
+Host regression tests (use a new output directory for the test fixtures):
+
+```sh
+python3 ps5/tools/make-font.py wadsrc/static/newconsolefont.hex /tmp/font_cp437.inc
+c++ -std=c++17 -O1 -I/tmp ps5/launcher/launcher.cpp ps5/launcher/textscreen.cpp \
+    ps5/launcher/test_launcher.cpp -o /tmp/test_launcher
+/tmp/test_launcher /tmp/uzdoom-launcher-test
+```
+
+The interface and regression test changes were developed with OpenAI Codex.

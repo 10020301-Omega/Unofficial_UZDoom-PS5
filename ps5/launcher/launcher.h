@@ -112,6 +112,9 @@ private:
 	void DrawOptions(TextScreen &screen) const;
 	void DrawPresets(TextScreen &screen) const;
 	void DrawMessage(TextScreen &screen) const;
+	std::vector<std::string> DetailLines(const Selection &sel, const std::string &name) const;
+	void PageDetails(const Input &input, const Selection &sel, const std::string &name);
+	void DrawDetails(TextScreen &screen, const Selection &sel, const std::string &name) const;
 
 	void Open(Screen next);
 	int ModOrder(const std::string &path) const;
@@ -128,6 +131,7 @@ private:
 	Result result = Result::Running;
 	int cursor = 0;      // the item in focus on the current screen
 	int top = 0;         // first list row shown
+	int detailPage = 0; // transient preview page; never serialized
 	int mainCursor = 0;  // remembered while a sub-screen is open
 	std::string messageTitle, messageText;
 	std::string buildLabel;
