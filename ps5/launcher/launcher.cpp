@@ -30,7 +30,7 @@ const uint8_t BarKeyAttr = Attr(Red, LightGray);
 const uint8_t BoxAttr = Attr(Black, LightGray);
 const uint8_t BoxDimAttr = Attr(DarkGray, LightGray);
 const uint8_t BoxValueAttr = Attr(Blue, LightGray);
-const uint8_t FocusAttr = Attr(White, Red);
+const uint8_t FocusAttr = Attr(White, Blue);
 const uint8_t InfoAttr = Attr(White, Blue);
 const uint8_t InfoLabelAttr = Attr(Yellow, Blue);
 const uint8_t MessageAttr = Attr(White, Red);
@@ -405,6 +405,7 @@ void Launcher::Open(Screen next)
 		mainCursor = cursor;
 	screen = next;
 	cursor = top = 0;
+	detailPage = 0;
 	if (next == Screen::Main)
 		cursor = mainCursor;
 	if (next == Screen::Games)
@@ -477,6 +478,7 @@ enum { MAIN_START, MAIN_GAME, MAIN_MODS, MAIN_OPTIONS, MAIN_PRESETS, MAIN_RESCAN
 
 void Launcher::UpdateMain(const Input &input)
 {
+	PageDetails(input, selection, "");
 	if (input.up) cursor = cursor > 0 ? cursor - 1 : MAIN_COUNT - 1;
 	if (input.down) cursor = cursor < MAIN_COUNT - 1 ? cursor + 1 : 0;
 
@@ -612,9 +614,13 @@ void Launcher::UpdateOptions(const Input &input)
 
 void Launcher::UpdatePresets(const Input &input)
 {
+	const int previousCursor = cursor;
 	if (input.up) cursor = cursor > 0 ? cursor - 1 : PresetCount - 1;
 	if (input.down) cursor = cursor < PresetCount - 1 ? cursor + 1 : 0;
+	if (cursor != previousCursor) detailPage = 0;
 	Preset &preset = presets[cursor];
+	if (preset.used) PageDetails(input, preset.selection, preset.name);
+	if (input.square || input.triangle) detailPage = 0;
 	if (input.back || input.start)
 	{
 		Open(Screen::Main);
@@ -646,7 +652,7 @@ void Launcher::UpdatePresets(const Input &input)
 
 void Launcher::DrawFrame(TextScreen &out, const std::string &help) const
 {
-	out.Clear(BackgroundAttr, CH_SHADE_LIGHT);
+	out.Clear(BackgroundAttr, ' ');
 	out.Fill(0, 0, TextScreen::Columns, 1, ' ', BarAttr);
 	out.PrintCentered(0, 0, TextScreen::Columns, "UZDoom Setup  -  PlayStation 5", BarAttr);
 	if (!buildLabel.empty())
@@ -670,52 +676,87 @@ void Launcher::Draw(TextScreen &out) const
 	}
 }
 
+// Details use the existing 80x25 raster. Paging is view-only: no selection or
+// configuration state changes when a highlighted preset is inspected.
+namespace
+{
+constexpr int DetailX = 27, DetailY = 2, DetailWidth = 51, DetailHeight = 19;
+constexpr int DetailTextWidth = DetailWidth - 4, DetailRows = DetailHeight - 3;
+
+void DetailText(std::vector<std::string> &lines, const std::string &text)
+{
+	// Hard wrapping also handles a filename without spaces; no bytes are lost
+	// after Display's existing UTF-8-to-CP437 conversion.
+	const std::string shown = Display(text);
+	if (shown.empty()) lines.emplace_back();
+	for (size_t pos = 0; pos < shown.size(); pos += DetailTextWidth)
+		lines.push_back(shown.substr(pos, DetailTextWidth));
+}
+}
+
+std::vector<std::string> Launcher::DetailLines(const Selection &sel, const std::string &name) const
+{
+	std::vector<std::string> lines;
+	if (!name.empty()) { DetailText(lines, name); lines.emplace_back(); }
+	DetailText(lines, "IWAD:");
+	DetailText(lines, sel.game.empty() ? "(none selected)" : BaseName(sel.game));
+	lines.emplace_back();
+	DetailText(lines, sel.warp ? "Start: map" : "Start: title screen");
+	if (!sel.warp) DetailText(lines, "Stored warp options (inactive):");
+	DetailText(lines, MapText(sel) + " | " + SkillText(sel));
+	DetailText(lines, "Monsters: " + std::string(MonstersText(sel.monsters)));
+	lines.emplace_back();
+	DetailText(lines, "Mods in load order: " + std::to_string(sel.mods.size()));
+	if (sel.mods.empty()) DetailText(lines, "(none)");
+	for (size_t i = 0; i < sel.mods.size(); ++i)
+	{
+		const std::string &path = sel.mods[i];
+		const std::string prefix = userRoot + "/mods/";
+		const std::string file = path.rfind(prefix, 0) == 0 ? path.substr(prefix.size()) : path;
+		DetailText(lines, std::to_string(i + 1) + ". " + file);
+	}
+	return lines;
+}
+
+void Launcher::PageDetails(const Input &input, const Selection &sel, const std::string &name)
+{
+	const int pages = std::max(1, ((int)DetailLines(sel, name).size() + DetailRows - 1) / DetailRows);
+	detailPage = Clamp(detailPage, 0, pages - 1);
+	if (input.pageUp) detailPage = (detailPage + pages - 1) % pages;
+	if (input.pageDown) detailPage = (detailPage + 1) % pages;
+}
+
+void Launcher::DrawDetails(TextScreen &out, const Selection &sel, const std::string &name) const
+{
+	out.Box(DetailX, DetailY, DetailWidth, DetailHeight, InfoAttr, false,
+		name.empty() ? "Current selection" : "Highlighted preset");
+	const auto lines = DetailLines(sel, name);
+	const int pages = std::max(1, ((int)lines.size() + DetailRows - 1) / DetailRows);
+	const int page = Clamp(detailPage, 0, pages - 1);
+	for (int row = 0; row < DetailRows && page * DetailRows + row < (int)lines.size(); ++row)
+		out.Print(DetailX + 2, DetailY + 1 + row, lines[page * DetailRows + row], InfoAttr, DetailTextWidth);
+	out.Print(DetailX + 2, DetailY + DetailHeight - 2,
+		"L1/R1 Details " + std::to_string(page + 1) + "/" + std::to_string(pages), InfoLabelAttr, DetailTextWidth);
+}
+
 void Launcher::DrawMain(TextScreen &out) const
 {
-	DrawFrame(out, "Up/Down=Move|Cross=Select|Options=Start Game");
-
+	DrawFrame(out, "Up/Down=Move|Cross=Select|L1/R1=Details|Options=Start Game");
 	static const char *const items[MAIN_COUNT] = {
 		"Start Game", "Select Game", "Select Mods", "Start Options", "Presets", "Rescan Folders", "Quit"
 	};
-	const int width = 34, height = MAIN_COUNT + 4;
-	const int x = (TextScreen::Columns - width) / 2, y = 3;
-	out.Box(x, y, width, height, BoxAttr, true, "Main Menu");
-	out.Shadow(x, y, width, height);
-	for (int i = 0; i < MAIN_COUNT; i++)
+	out.Box(2, 2, 24, 13, BoxAttr, true, "Main Menu");
+	for (int i = 0; i < MAIN_COUNT; ++i)
 	{
 		const bool disabled = i == MAIN_START && selection.game.empty();
-		out.Print(x + 4, y + 2 + i, items[i], disabled ? BoxDimAttr : BoxAttr);
-		if (i == cursor)
-			out.Recolor(x + 2, y + 2 + i, width - 4, FocusAttr);
+		out.Print(4, 4 + i, items[i], disabled ? BoxDimAttr : BoxAttr, 20);
+		if (i == cursor) out.Recolor(3, 4 + i, 22, FocusAttr);
 	}
-
-	// What will start
-	const int infoX = 3, infoY = 16, infoWidth = 74, infoHeight = 6;
-	out.Box(infoX, infoY, infoWidth, infoHeight, InfoAttr, false, "Ready to start");
-	const int valueX = infoX + 10, valueWidth = infoWidth - 12;
-	out.Print(infoX + 2, infoY + 1, "Game:", InfoLabelAttr);
-	out.Print(infoX + 2, infoY + 2, "Mods:", InfoLabelAttr);
-	out.Print(infoX + 2, infoY + 3, "Start:", InfoLabelAttr);
-	out.Print(infoX + 2, infoY + 4, "Files:", InfoLabelAttr);
-	if (selection.game.empty())
-	{
-		out.Print(valueX, infoY + 1, "none found - copy one to " + shownRoot + "/iwads", InfoAttr, valueWidth);
-	}
-	else
-	{
-		out.Print(valueX, infoY + 1, GameTitle(selection.game) + "  (" + Display(BaseName(selection.game)) + ")",
-			InfoAttr, valueWidth);
-	}
-	std::string modText = "none";
-	if (!selection.mods.empty())
-	{
-		modText.clear();
-		for (size_t i = 0; i < selection.mods.size(); i++)
-			modText += (i ? ", " : "") + Display(BaseName(selection.mods[i]));
-	}
-	out.Print(valueX, infoY + 2, modText, InfoAttr, valueWidth);
-	out.Print(valueX, infoY + 3, StartSummary(selection), InfoAttr, valueWidth);
-	out.Print(valueX, infoY + 4, "FTP to " + shownRoot + "/iwads  and  .../mods", InfoAttr, valueWidth);
+	out.Print(3, 17, "IWADs: " + std::to_string(games.size()), InfoLabelAttr, 22);
+	out.Print(3, 18, "Mods: " + std::to_string(mods.size()), InfoAttr, 22);
+	out.Print(3, 19, "L1/R1: details pages", InfoAttr, 22);
+	DrawDetails(out, selection, "");
+	out.Print(2, 22, "FTP to " + shownRoot + "/iwads  and  .../mods", InfoAttr, 76);
 }
 
 void Launcher::DrawGames(TextScreen &out) const
@@ -832,25 +873,24 @@ void Launcher::DrawOptions(TextScreen &out) const
 
 void Launcher::DrawPresets(TextScreen &out) const
 {
-	DrawFrame(out, "Cross=Load|Square=Save Here|Triangle=Erase|Circle=Back");
-	const int width = 70, height = PresetCount + 4;
-	const int x = (TextScreen::Columns - width) / 2, y = 4;
-	out.Box(x, y, width, height, BoxAttr, true, "Presets");
-	out.Shadow(x, y, width, height);
-	for (int i = 0; i < PresetCount; i++)
+	DrawFrame(out, "Cross=Load|Square=Save Here|Triangle=Erase|Circle=Back|L1/R1=Details");
+	out.Box(2, 2, 24, 19, BoxAttr, true, "Presets (8 slots)");
+	for (int i = 0; i < PresetCount; ++i)
 	{
-		char number[16];
-		snprintf(number, sizeof(number), "%d.", i + 1);
-		out.Print(x + 3, y + 2 + i, number, BoxAttr);
-		if (presets[i].used)
-			out.Print(x + 6, y + 2 + i, presets[i].name, BoxAttr, width - 9);
-		else
-			out.Print(x + 6, y + 2 + i, "(empty)", BoxDimAttr);
-		if (i == cursor)
-			out.Recolor(x + 2, y + 2 + i, width - 4, FocusAttr);
+		out.Print(4, 4 + i, std::to_string(i + 1) + ". " +
+			(presets[i].used ? Display(presets[i].name) : "(empty)"),
+			presets[i].used ? BoxAttr : BoxDimAttr, 20);
+		if (i == cursor) out.Recolor(3, 4 + i, 22, FocusAttr);
 	}
-	out.PrintCentered(0, y + height + 2, TextScreen::Columns,
-		"A preset keeps the game, the mods in their order and the start options.", InfoAttr);
+	const Preset &preset = presets[cursor];
+	if (preset.used) DrawDetails(out, preset.selection, preset.name);
+	else
+	{
+		out.Box(DetailX, DetailY, DetailWidth, DetailHeight, InfoAttr, false, "Highlighted preset");
+		out.Print(DetailX + 2, 4, "Empty slot", InfoLabelAttr, DetailTextWidth);
+		out.Print(DetailX + 2, 6, "Square saves the current selection here.", InfoAttr, DetailTextWidth);
+	}
+	out.Print(2, 22, "Preview only: Cross loads; browsing does not change your selection.", InfoLabelAttr, 76);
 }
 
 void Launcher::DrawMessage(TextScreen &out) const

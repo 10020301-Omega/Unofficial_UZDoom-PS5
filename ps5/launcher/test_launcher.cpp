@@ -71,6 +71,8 @@ static Launcher::Result Press(Launcher &launcher, const char *keys)
 		case 's': input.square = true; break;
 		case 't': input.triangle = true; break;
 		case 'o': input.start = true; break;
+		case '<': input.pageUp = true; break;
+		case '>': input.pageDown = true; break;
 		}
 		result = launcher.Update(input);
 	}
@@ -83,6 +85,179 @@ static std::string Join(const std::vector<std::string> &args)
 	for (const std::string &arg : args)
 		out += (out.empty() ? "" : " ") + arg;
 	return out;
+}
+
+
+static std::string ReadFile(const std::string &path)
+{
+	std::ifstream file(path, std::ios::binary);
+	return std::string(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+}
+
+static std::string ScreenText(const Launcher &launcher)
+{
+	TextScreen screen;
+	launcher.Draw(screen);
+	return screen.Dump();
+}
+
+// Recover visible right-panel text across all pages, checking the page cycle.
+static std::string AllDetails(Launcher &launcher)
+{
+	const std::string first = ScreenText(launcher);
+	std::string text;
+	for (int page = 0; page < 200; ++page)
+	{
+		TextScreen screen;
+		launcher.Draw(screen);
+		for (int y = 3; y <= 18; ++y)
+			for (int x = 29; x <= 75; ++x)
+				if (screen.At(x, y).ch != ' ') text += (char)screen.At(x, y).ch;
+		Press(launcher, ">");
+		if (ScreenText(launcher) == first) return text;
+	}
+	Check(false, "detail pagination terminates");
+	return text;
+}
+
+static std::string NoSpaces(std::string text)
+{
+	std::string result;
+	for (char c : text) if (c != ' ') result += c;
+	return result;
+}
+
+static void StressPresets()
+{
+	const std::string user = work + "/stress", app = work + "/app";
+	Launcher setup(user, app);
+	setup.Rescan();
+	Touch(user + "/iwads/DOOM2.WAD", 16);
+	Touch(user + "/iwads/HERETIC.WAD", 16);
+	std::vector<std::string> mods;
+	for (int i = 0; i < 36; ++i)
+	{
+		const std::string name = std::to_string(i + 1) + "-" +
+			(i % 2 ? std::string(180, 'x') : "Map pack with spaces and = signs") + "-end.pk3";
+		mods.push_back(user + "/mods/" + name);
+		Touch(mods.back(), 16);
+	}
+	const std::string cfg = user + "/config/launcher.cfg";
+	{
+		std::ofstream f(cfg);
+		auto selection = [&](int slot, bool many) {
+			f << "game=" << user << "/iwads/DOOM2.WAD\n";
+			if (many) for (const auto &mod : mods) f << "mod=" << mod << "\n";
+			f << "warp=1\nepisode=0\nmap=" << slot << "\nskill=4\nmonsters=1\n";
+		};
+		selection(1, true);
+		for (int i = 1; i <= 8; ++i)
+		{
+			f << "[preset " << i << "]\nname=Slot " << i << " " << std::string(90, 'N') << "\n";
+			selection(i, i != 3); // slot 3 is used but deliberately has no mods
+		}
+	}
+	Launcher launcher(user, app);
+	launcher.Load(); launcher.Rescan();
+	const std::string originalCfg = ReadFile(cfg);
+	const auto originalArgs = launcher.BuildArguments();
+	launcher.Save();
+	Check(ReadFile(cfg) == originalCfg, "legacy format and all eight presets round-trip byte-for-byte");
+	const std::string main = ScreenText(launcher);
+	const std::string all = AllDetails(launcher);
+	for (const auto &mod : mods)
+		Check(all.find(NoSpaces(BaseName(mod))) != std::string::npos, "main pages expose complete long filename");
+	Check(ScreenText(launcher) == main, "R1 wraps back to first main page");
+	Press(launcher, "<>");
+	Check(ScreenText(launcher) == main, "L1 and R1 are inverse on main");
+	Snapshot(launcher, "14-many-main-first");
+	Press(launcher, ">"); Snapshot(launcher, "15-many-main-next");
+	Press(launcher, "dddd" "a");
+	for (int slot = 1; slot <= 8; ++slot)
+	{
+		const auto text = ScreenText(launcher);
+		Check(text.find("Slot " + std::to_string(slot)) != std::string::npos,
+			"highlight previews that preset without loading");
+		Check(text.find("1/") != std::string::npos, "changing highlighted preset resets detail page");
+		const auto details = AllDetails(launcher);
+		Check(details.find("MAP0" + std::to_string(slot)) != std::string::npos,
+			"preview shows highlighted preset start options");
+		Check(details.find("Ultra-Violence") != std::string::npos && details.find("Fast") != std::string::npos,
+			"preview includes skill and monster mode");
+		if (slot != 3)
+			for (const auto &mod : mods)
+				Check(details.find(NoSpaces(BaseName(mod))) != std::string::npos,
+					"preset pages expose every filename without truncation");
+		else Check(details.find("(none)") != std::string::npos, "used zero-mod preset displays none");
+		Check(launcher.BuildArguments() == originalArgs, "preview and paging leave active selection unchanged");
+		Check(ReadFile(cfg) == originalCfg, "preview and paging never write launcher.cfg");
+		if (slot == 1) Snapshot(launcher, "16-preset-first");
+		Press(launcher, ">");
+		if (slot == 1) Snapshot(launcher, "17-preset-long-name");
+		Press(launcher, "d");
+	}
+	Check(ScreenText(launcher).find("Slot 1") != std::string::npos, "down wraps through all eight slots");
+	Press(launcher, "u");
+	Check(ScreenText(launcher).find("Slot 8") != std::string::npos, "up wraps to slot eight");
+	Press(launcher, "a");
+	Check(launcher.Current().map == 8 && launcher.Current().mods == mods,
+		"Cross loads eighth preset with exact mod order");
+	const auto args = launcher.BuildArguments();
+	Check(args.size() > mods.size() + 3 && args[3] == mods.front() && args[38] == mods.back(),
+		"launch arguments retain first and last mod order");
+	// Main cursor remains Presets, so Cross opens it again at slot 1.
+	Press(launcher, "a" "u" "s");
+	Snapshot(launcher, "18-overwrite-eight");
+	Check(ScreenText(launcher).find("Slot 8") == std::string::npos,
+		"Square overwrites only the highlighted slot with generated name");
+	Press(launcher, "t");
+	Snapshot(launcher, "19-erased-eight");
+	const auto erased = ReadFile(cfg);
+	Check(erased.find("[preset 8]") == std::string::npos && erased.find("[preset 7]") != std::string::npos,
+		"Triangle erases slot eight and preserves slot seven");
+	Check(launcher.Current().mods == mods, "erasing preset leaves active mods unchanged");
+	Check(ScreenText(launcher).find("Empty slot") != std::string::npos,
+		"erased preset preview immediately becomes empty");
+	Press(launcher, "a");
+	Check(ScreenText(launcher).find("Empty slot") != std::string::npos, "Cross on empty slot does not load");
+	Press(launcher, "b");
+	Launcher reloaded(user, app); reloaded.Load(); reloaded.Rescan();
+	Check(reloaded.Current().map == 8 && reloaded.Current().mods == mods,
+		"selection survives save and reload after erase");
+	Press(reloaded, "dddd" "a" "uu"); // slot seven
+	Check(ScreenText(reloaded).find("Slot 7") != std::string::npos,
+		"another preset survives overwrite erase and reload");
+	Press(reloaded, "a");
+	Check(reloaded.Current().map == 7 && reloaded.Current().mods == mods,
+		"surviving preset loads all mods in order");
+	Check(Press(reloaded, "o") == Launcher::Result::Launch, "Options launches after preset reload");
+}
+
+
+static void DemoScreens()
+{
+	const std::string user = work + "/demo";
+	Launcher setup(user, user, "/data/uzdoom"); setup.Rescan();
+	Touch(user + "/iwads/DOOM2.WAD", 16);
+	const std::vector<std::string> names = {"arrival.wad", "GunBonsai-0.10.6.pk3", "LegenDoom_3.0.pk3"};
+	for (const auto &name : names) Touch(user + "/mods/" + name, 16);
+	{
+		std::ofstream cfg(user + "/config/launcher.cfg");
+		auto selection = [&]() {
+			cfg << "game=" << user << "/iwads/DOOM2.WAD\n";
+			for (const auto &name : names) cfg << "mod=" << user << "/mods/" << name << "\n";
+			cfg << "warp=1\nepisode=0\nmap=1\nskill=4\nmonsters=0\n";
+		};
+		selection();
+		cfg << "[preset 1]\nname=Arrival + Gun Bonsai + LegenDoom\n"; selection();
+	}
+	Launcher demo(user, user, "/data/uzdoom"); demo.Load(); demo.Rescan();
+	Snapshot(demo, "20-demo-main");
+	Check(ScreenText(demo).find("LegenDoom_3.0.pk3") != std::string::npos,
+		"three typical mods are visible together on main");
+	Press(demo, "dddd" "a"); Snapshot(demo, "21-demo-presets");
+	Check(AllDetails(demo).find("LegenDoom_3.0.pk3") != std::string::npos,
+		"typical preset includes all three files");
 }
 
 int main(int argc, char **argv)
@@ -231,6 +406,8 @@ int main(int argc, char **argv)
 		Snapshot(launcher, "13-title-folder");
 	}
 
+	StressPresets();
+	DemoScreens();
 	printf("%s\n", failures ? "FAILED" : "all passed");
 	return failures ? 1 : 0;
 }
